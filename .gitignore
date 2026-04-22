@@ -25,3 +25,7 @@ ui_*.h
 # 其他
 .DS_Store
 Thumbs.db
+
+# Qt Creator 用户配置（整个文件夹）
+.qtcreator/
+*.qws
