@@ -1,0 +1,45 @@
+
+数据流向图
+HostManager (C++)
+    │
+    ├── connectedHostList (地址列表) ──────→ Host_Detecting.qml
+    │                                            │
+    │                                            ▼
+    │                                     Repeater 遍历地址
+    │                                            │
+    │                                 为每个地址创建 CustomHostUnit
+    │                                            │
+    │                                            ▼
+    └── getHostInfoByAddress(地址) ←────── CustomHostUnit 查询完整信息
+                                                 │
+                                                 ▼
+                                           显示所有主机数据
+                                                 │
+                                                 ▼
+                                      hostInfoChanged 信号触发更新
+
+2. 完整的执行时序
+时间线 ↓
+    |
+    |  Host_Detecting.qml:
+    |  Repeater 开始为 model 中的每个地址创建 delegate
+    |
+    ├─→ 创建 CustomHostUnit #1 (hostAddress = 0x01)
+    |   |
+    |   ├─→ QML 引擎看到 hostInfo 绑定到 getHostInfoByAddress(0x01)
+    |   ├─→ 立即执行 C++ 函数 HostManager::getHostInfoByAddress(0x01)
+    |   ├─→ C++ 返回该主机的 QVariantMap
+    |   ├─→ hostInfo 属性被设置为返回的 map
+    |   ├─→ 依赖 hostInfo 的属性（addressStr, hostName等）自动更新
+    |   └─→ UI 使用这些属性渲染界面
+    |
+    ├─→ 创建 CustomHostUnit #2 (hostAddress = 0x02)
+    |   ├─→ 同样执行 getHostInfoByAddress(0x02)
+    |   └─→ ...
+    |
+    ├─→ 创建 CustomHostUnit #3 (hostAddress = 0x03)
+    |   └─→ ...
+    |
+    └─→ 创建 CustomHostUnit #4 (hostAddress = 0x04)
+        └─→ ...
+3. 调试输出验证

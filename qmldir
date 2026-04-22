@@ -1,0 +1,24 @@
+module audioxdc
+
+Main 1.0 Main.qml
+singleton Theme 1.0 Theme.qml
+
+CustomIcon 1.0 qml/CustomWidget/CustomIcon.qml
+CustomTreeMenu 1.0 qml/CustomWidget/CustomTreeMenu.qml
+CustomTreeMenuData 1.0 qml/CustomWidget/CustomTreeMenuData.qml
+CustomDatetimePicker 1.0 qml/CustomWidget/CustomDatetimePicker.qml
+CustomCombox 1.0 qml/CustomWidget/CustomCombox.qml
+CustomTextField 1.0 qml/CustomWidget/CustomTextField.qml
+CustomSpin 1.0 qml/CustomWidget/CustomSpin.qml
+CustomButton 1.0 qml/CustomWidget/CustomButton.qml
+CustomRectangle 1.0 qml/CustomWidget/CustomRectangle.qml
+CustomRadioButton 1.0 qml/CustomWidget/CustomRadioButton.qml
+CustomMultipleCheckBox 1.0 qml/CustomWidget/CustomMultipleCheckBox.qml
+CustomCheckBox 1.0 qml/CustomWidget/CustomCheckBox.qml
+CustomSlider 1.0 qml/CustomWidget/CustomSlider.qml
+
+CustomHostUnit 1.0 qml/CustomWidget/CustomHostUnit.qml
+CustomAFHUnit 1.0 qml/CustomWidget/CustomAFHUnit.qml
+
+CustomUnitCard 1.0 qml/CustomWidget/CustomUnitCard.qml
+CustomUnitDetailPanel 1.0 qml/CustomWidget/CustomUnitDetailPanel.qml

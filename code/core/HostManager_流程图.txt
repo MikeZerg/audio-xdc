@@ -1,0 +1,473 @@
+================================================================================
+                    HostManager 核心函数流程图
+================================================================================
+生成时间：2026 年 3 月 24 日
+文件：HostManager.cpp
+================================================================================
+
+工作流程顺序：
+1. 系统初始化 → 2. 主机探测 → 3. 创建控制器 → 4. 激活主机 
+→ 5. 数据接收 → 6. 数据路由 → 7. 主机管理
+================================================================================
+
+================================================================================
+1. detectHosts() - 探测主机函数（工作流程起点）
+================================================================================
+
+开始 (maxAddress)
+  ↓
+【步骤 1】检查是否有控制器实例存在
+  hostWithInstance = []
+  foreach (info : m_hostInfoMap) {
+    判断：m_controllers.contains(info.address) ?
+    ├─ YES → hostWithInstance.append(info.address)
+    └─ NO
+  }
+  ↓
+  判断：!hostWithInstance.isEmpty() ?
+  ├─ YES → 【禁止探测】
+  │         构建详细错误信息
+  │         ↓
+  │         emit errorOccurred("有主机控制器实例未释放")
+  │         ↓
+  │         return QList<uint8_t>() (空列表)
+  └─ NO  ↓
+【步骤 2】清空之前的状态
+  QMutexLocker locker(&m_detectHostMutex)
+  m_detectHostResponse.clear()
+  m_hostInfoMap.clear()
+  ↓
+  【清理所有控制器实例】
+  foreach (controller : m_controllers) {
+    controller->deleteLater()
+  }
+  m_controllers.clear()
+  ↓
+  m_activeHostAddress = 0
+  ↓
+  判断：oldActiveAddress != 0 ?
+  ├─ YES → emit activeHostChanged(oldActiveAddress, 0)
+  └─ NO  ↓
+【步骤 3】循环探测每个地址
+  detectedHostAddress = []
+  ↓
+  for (address = 0x01 to maxAddress) {
+    ↓
+    success = sendProbeCommand(address)
+    ↓
+    判断：success ?
+    ├─ YES → waitResult = waitForDetectHostResponse(address)
+    │         ↓
+    │         判断：waitResult == true ?
+    │         ├─ YES → updateHostInfo(address, Connected, Unknown, false)
+    │         │         detectedHostAddress.append(address)
+    │         │         emit hostInfoChanged(address)
+    │         │         输出探测成功日志
+    │         └─ NO  → 输出超时日志
+    │                   清理等待状态
+    │
+    └─ NO  → 输出发送失败日志
+  }
+  ↓
+【步骤 4】记录探测时间
+  m_lastDetectionTime = QDateTime::currentDateTime()
+  ↓
+  输出探测完成日志（发现 N 个主机）
+  ↓
+  return detectedHostAddress
+  ↓
+结束
+
+================================================================================
+2. createControllerByType() - 控制器工厂函数
+================================================================================
+
+开始 (hostAddress, type)
+  ↓
+【步骤 1】switch(type) 判断设备类型
+  ↓
+  ├─ case xdc236 (0x01)
+  │   ↓
+  │   输出创建日志（XDC236）
+  │   ↓
+  │   return new XdcController(hostAddress, this)
+  │
+  ├─ case afh248 (0x02)
+  │   ↓
+  │   输出创建日志（AFH248）
+  │   ↓
+  │   return new XdcController(hostAddress, this) (临时用 XDC 替代)
+  │
+  └─ default (未知类型)
+      ↓
+      输出警告日志（未知类型，使用默认 XDC）
+      ↓
+      return new XdcController(hostAddress, this)
+  ↓
+结束
+
+================================================================================
+3. createHost() - 创建主机控制器函数
+================================================================================
+
+开始 (hostAddress, deviceType)
+  ↓
+【步骤 1】获取主机信息指针
+  info = getHostInfoPtr(hostAddress)
+  ↓
+【步骤 2】检查地址是否已被探测到
+  判断：!info || info->status == None ?
+  ├─ YES → 输出警告日志（未被探测到或不在线）+ return false
+  └─ NO  ↓
+【步骤 3】检查控制器是否已存在
+  判断：m_controllers.contains(hostAddress) ?
+  ├─ YES → 输出警告日志（控制器已存在）+ return true
+  └─ NO  ↓
+【步骤 4】根据设备类型创建控制器
+  controller = createControllerByType(hostAddress, deviceType)
+  ↓
+  判断：!controller ?
+  ├─ YES → 输出警告日志（创建失败）+ return false
+  └─ NO  ↓
+【步骤 5】存储控制器到独立容器
+  m_controllers[hostAddress] = controller
+  ↓
+【步骤 6】更新主机信息
+  info->deviceType = deviceType
+  info->status = Ready
+  ↓
+  emit hostInfoChanged(hostAddress)
+  ↓
+  输出成功日志（地址、类型）
+  ↓
+  return true
+  ↓
+结束
+
+================================================================================
+4. activateHost() - 设置活动主机函数
+================================================================================
+
+开始 (hostAddress)
+  ↓
+【步骤 1】获取主机信息指针
+  info = getHostInfoPtr(hostAddress)
+  ↓
+【步骤 2】检查主机是否被探测到
+  判断：!info || info->status == None ?
+  ├─ YES → 输出警告日志（未探测到）+ return false
+  └─ NO  ↓
+【步骤 3】检查控制器是否存在
+  判断：!m_controllers.contains(hostAddress) ?
+  ├─ YES → 【自动创建控制器】
+  │         success = createHost(hostAddress, info->deviceType)
+  │         ↓
+  │         判断：!success ?
+  │         ├─ YES → 输出警告日志（创建失败）+ return false
+  │         └─ NO  ↓
+  │                info = getHostInfoPtr(hostAddress) (重新获取)
+  │                ↓
+  │                判断：!info || !m_controllers.contains(hostAddress) ?
+  │                ├─ YES → 输出警告日志（创建后仍不存在）+ return false
+  │                └─ NO  ↓
+  └─ NO  ↓
+【步骤 4】检查主机状态
+  判断：status == Busy || Error ?
+  ├─ YES → 输出警告日志（状态不允许）+ return false
+  └─ NO  ↓
+  判断：status != Ready && != Active ?
+  ├─ YES → 输出警告日志（状态异常）+ return false
+  └─ NO  ↓
+【步骤 5】检查是否已是活动主机
+  oldActiveAddress = m_activeHostAddress
+  ↓
+  判断：oldActiveAddress == hostAddress ?
+  ├─ YES → 判断：status != Active ?
+  │         ├─ YES → info->status = Active
+  │         │         emit hostInfoChanged(hostAddress)
+  │         └─ NO  ↓
+  │         输出日志（已经是活动主机）
+  │         ↓
+  │         return true
+  └─ NO  ↓
+【步骤 6】清除其他主机的活动状态
+  foreach (pair : m_hostInfoMap) {
+    判断：pair.status == Active ?
+    ├─ YES → pair.status = Ready
+    │         emit hostInfoChanged(pair.address)
+    │         输出日志（清除活动状态）
+    └─ NO
+  }
+  ↓
+【步骤 7】设置新的活动主机
+  m_activeHostAddress = hostAddress
+  info->status = Active
+  ↓
+  emit hostInfoChanged(hostAddress)
+  ↓
+  updateActiveHostMap()
+  ↓
+  emit activeHostChanged(oldActiveAddress, hostAddress)
+  ↓
+  return true
+  ↓
+结束
+
+================================================================================
+5. updateActiveHostMap() - 更新活动主机映射函数
+================================================================================
+
+开始
+  ↓
+【步骤 1】获取活动主机信息
+  info = getHostInfoPtr(m_activeHostAddress)
+  ↓
+【步骤 2】判断是否有活动主机
+  判断：info 有效？
+  ├─ YES → 【更新所有属性】
+  │         m_activeHostMap->insert("address", info->address)
+  │         m_activeHostMap->insert("addressHex", info->addressHex())
+  │         m_activeHostMap->insert("serialNumber", info->serialNumber)
+  │         m_activeHostMap->insert("aliasName", info->aliasName)
+  │         m_activeHostMap->insert("status", static_cast<int>(info->status))
+  │         m_activeHostMap->insert("statusText", info->statusText())
+  │         m_activeHostMap->insert("isConnected", info->isConnected())
+  │         m_activeHostMap->insert("isReady", info->isReady())
+  │         m_activeHostMap->insert("isActive", info->isActive())
+  │         m_activeHostMap->insert("lastSeenTime", info->lastSeenTime())
+  │         ↓
+  │         输出更新日志（地址、名称、状态）
+  │
+  └─ NO  → 【设置为默认值】
+            m_activeHostMap->insert("address", 0)
+            m_activeHostMap->insert("addressHex", "")
+            m_activeHostMap->insert("serialNumber", "")
+            m_activeHostMap->insert("aliasName", "")
+            m_activeHostMap->insert("status", static_cast<int>(None))
+            m_activeHostMap->insert("statusText", "无活动主机")
+            m_activeHostMap->insert("isConnected", false)
+            m_activeHostMap->insert("isReady", false)
+            m_activeHostMap->insert("isActive", false)
+            m_activeHostMap->insert("lastSeenTime", "")
+            ↓
+            输出清除日志
+  ↓
+结束
+
+================================================================================
+6. onFactoryDataReceived() - 工厂数据接收处理函数
+================================================================================
+
+开始 (收到原始数据 data)
+  ↓
+【步骤 1】数据有效性检查
+  判断：data.isEmpty() ?
+  ├─ YES → return (直接返回)
+  └─ NO  ↓
+【步骤 2】添加到接收缓冲区
+  m_receivedData.append(data)
+  ↓
+  输出接收日志（数据长度、缓冲区大小）
+  ↓
+【步骤 3】循环提取完整帧
+  extractedFrames = false
+  ↓
+  while (true) {
+    ↓
+    frames = ProtocolProcessor::extractFramesFromBuffer(m_receivedData)
+    ↓
+    判断：frames.isEmpty() ?
+    ├─ YES → break (退出循环)
+    └─ NO  ↓
+           extractedFrames = true
+           输出日志："提取到 N 个完整帧"
+           ↓
+    【步骤 4】遍历处理每个帧
+    foreach (frame : frames) {
+      ↓
+      parsedData = ProtocolProcessor::parseFrame(frame)
+      ↓
+      判断：解析成功？
+      ├─ YES → 判断：command == 0x0201 (探测指令)？
+      │        ├─ YES (探测响应)
+      │        │   ↓
+      │        │   【探测响应特殊处理】
+      │        │   读取 payload[0] → detectedType
+      │        │   ↓
+      │        │   更新主机信息：updateHostInfo(srcAddr, Connected, detectedType, true)
+      │        │   ↓
+      │        │   记录探测响应状态：m_detectHostResponse[srcAddr] = true
+      │        │   ↓
+      │        │   emit detectedHostsResponseReceived(srcAddr)
+      │        │   ↓
+      │        │   输出探测日志（地址、类型）
+      │        │   ↓
+      │        │   continue (继续下一个帧)
+      │        │
+      │        └─ NO (非探测指令)
+      │            ↓
+      │            forwardFrameToHostController(parsedData)
+      │            ↓
+      │            输出协议帧解析成功日志（目标地址、源地址、操作码、命令码、负载长度）
+      │
+      └─ NO  → emit errorOccurred("协议帧解析失败")
+               输出警告日志（帧数据 hex）
+    }
+  }
+  ↓
+【步骤 5】缓冲区清理检查
+  判断：m_receivedData.size() > 10KB ?
+  ├─ YES → 输出警告日志（缓冲区过大）
+  │         m_receivedData.clear()
+  └─ NO  ↓
+【步骤 6】输出处理完成日志
+  判断：extractedFrames ?
+  ├─ YES → 输出日志（缓冲区剩余大小）
+  └─ NO  ↓
+结束
+
+================================================================================
+7. forwardFrameToHostController() - 数据路由转发函数
+================================================================================
+
+开始 (data.destAddr = targetAddress)
+  ↓
+【步骤 1】检查主机信息是否存在
+  info = getHostInfoPtr(targetAddress)
+  ↓
+  判断：!info ?
+  ├─ YES → handleUnknownAddress() + 输出警告日志 + return
+  └─ NO  ↓
+【步骤 2】从独立容器中获取控制器实例
+  controllerObj = m_controllers.value(targetAddress, nullptr)
+  ↓
+  判断：!controllerObj ?
+  ├─ YES → handleUnknownAddress() + 输出警告日志 + return
+  └─ NO  ↓
+【步骤 3】根据设备类型转换并调用对应的控制器
+  ↓
+  判断：info->deviceType == ?
+  ↓
+  ├─ xdc236 (0x01)
+  │   ↓
+  │   xdcCtrl = qobject_cast<XdcController*>(controllerObj)
+  │   ↓
+  │   判断：xdcCtrl 有效？
+  │   ├─ YES → xdcCtrl->handleIncomingFrame(data)
+  │   │         → emit hostManagerDataReceived()
+  │   │         → 输出成功日志 + return
+  │   └─ NO  → 输出转换失败日志（期望类型、实际类型）+ return
+  │
+  ├─ afh248 (0x02)
+  │   ↓
+  │   输出警告日志："AFH 控制器尚未实现"
+  │   → return
+  │
+  ├─ PowerAmplifier (0x03)
+  │   ↓
+  │   输出警告日志："功放控制器尚未实现"
+  │   → return
+  │
+  ├─ WirelessMic (0x04)
+  │   ↓
+  │   输出警告日志："无线麦克风控制器尚未实现"
+  │   → return
+  │
+  └─ Unknown/其他
+      ↓
+      xdcCtrl = qobject_cast<XdcController*>(controllerObj)
+      ↓
+      判断：xdcCtrl 有效？
+      ├─ YES → xdcCtrl->handleIncomingFrame(data)
+      │         → emit hostManagerDataReceived()
+      │         → 输出警告日志（未知类型，使用 XDC 处理）+ return
+      └─ NO  → 输出警告日志（未知类型且无法转换）+ return
+  ↓
+结束
+
+================================================================================
+8. removeHost() - 移除主机控制器函数
+================================================================================
+
+开始 (hostAddress)
+  ↓
+【步骤 1】查找主机信息
+  it = m_hostInfoMap.find(hostAddress)
+  ↓
+【步骤 2】检查主机和控制器是否存在
+  判断：it == end() || !m_controllers.contains(hostAddress) ?
+  ├─ YES → 输出警告日志（控制器不存在）+ return false
+  └─ NO  ↓
+【步骤 3】检查是否是活动主机
+  判断：m_activeHostAddress == hostAddress ?
+  ├─ YES → oldAddress = m_activeHostAddress
+  │         m_activeHostAddress = 0
+  │         updateActiveHostMap()
+  │         emit activeHostChanged(oldAddress, 0)
+  └─ NO  ↓
+【步骤 4】移除并销毁控制器
+  controller = m_controllers.take(hostAddress)
+  ↓
+  判断：controller 有效？
+  ├─ YES → controller->deleteLater()
+  └─ NO  ↓
+【步骤 5】降级主机状态
+  it->status = Connected
+  ↓
+  emit hostInfoChanged(hostAddress)
+  ↓
+  输出成功日志（移除成功）
+  ↓
+  return true
+  ↓
+结束
+
+================================================================================
+                              关键数据结构
+================================================================================
+
+1. m_hostInfoMap: QMap<uint8_t, HostInfo>
+   - 所有主机信息的唯一数据源
+   - Key: 主机地址 (uint8_t)
+   - Value: HostInfo 结构体（包含地址、状态、设备类型等）
+
+2. m_controllers: QMap<uint8_t, QObject*>
+   - 独立的控制器实例容器
+   - Key: 主机地址 (uint8_t)
+   - Value: 控制器对象指针 (QObject*)
+   - 实际类型：XdcController* 或 AfhController*
+
+3. m_activeHostMap: QQmlPropertyMap*
+   - 当前活动主机的 QML 映射
+   - 供 QML 引擎绑定使用
+   - 包含活动主机的所有属性
+
+4. m_detectHostResponse: QMap<uint8_t, bool>
+   - 探测响应记录表
+   - Key: 主机地址
+   - Value: 是否收到响应帧
+
+================================================================================
+                              架构设计要点
+================================================================================
+
+1. 分离存储策略
+   - HostInfo (纯数据) → 暴露给 QML
+   - m_controllers (对象指针) → C++ 内部管理
+
+2. 数据路由机制
+   - 基于目标地址 (destAddr) 路由
+   - 不依赖设备类型判断
+   - 类型判断仅用于控制器转换
+
+3. 生命周期管理
+   - 探测 → 创建 → 激活 → 停用 → 移除
+   - 清晰的状态流转：None → Connected → Ready → Active
+
+4. 多类型支持
+   - 运行时类型判断 (qobject_cast)
+   - 预留扩展分支（AFH、功放、无线麦）
+   - 未知类型降级处理
+
+================================================================================
+

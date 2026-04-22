@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
+<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" 
+	 viewBox="0 0 512 512" xml:space="preserve">
+<rect x="4" y="52" style="fill:#FFFFFF;" width="504" height="408"/>
+<path style="fill:#AAC1CE;" d="M504,56v400H8V56H504 M512,48H0v416h512V48z"/>
+<rect x="64" y="104" style="fill:#D72822;" width="80" height="80"/>
+<g>
+	<rect x="176" y="124" style="fill:#AAC1CE;" width="240" height="8"/>
+	<rect x="176" y="156" style="fill:#AAC1CE;" width="272" height="8"/>
+</g>
+<rect x="64" y="216" style="fill:#D72822;" width="80" height="80"/>
+<g>
+	<rect x="176" y="236" style="fill:#AAC1CE;" width="240" height="8"/>
+	<rect x="176" y="268" style="fill:#AAC1CE;" width="272" height="8"/>
+</g>
+<rect x="64" y="328" style="fill:#D72822;" width="80" height="80"/>
+<g>
+	<rect x="176" y="348" style="fill:#AAC1CE;" width="240" height="8"/>
+	<rect x="176" y="380" style="fill:#AAC1CE;" width="272" height="8"/>
+</g>
+<g>
+	<circle style="fill:#FFFFFF;" cx="104" cy="144" r="16"/>
+	<circle style="fill:#FFFFFF;" cx="104" cy="256" r="16"/>
+	<circle style="fill:#FFFFFF;" cx="104" cy="368" r="16"/>
+</g>
+</svg>

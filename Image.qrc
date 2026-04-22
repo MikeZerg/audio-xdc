@@ -1,0 +1,39 @@
+<RCC>
+    <qresource prefix="/">
+        <file>image/app-icon.svg</file>
+        <file>image/app-product.jpg</file>
+        <file>image/app-iMeetingPlat.png</file>
+        <file>image/app-about.svg</file>
+        <file>image/app-help.svg</file>
+        <file>image/app-home.svg</file>
+        <file>image/app-host.svg</file>
+        <file>image/app-meeting.svg</file>
+        <file>image/app-unit.svg</file>
+        <file>image/app-hosthover.svg</file>
+        <file>image/app-abouthover.svg</file>
+        <file>image/app-homehover.svg</file>
+        <file>image/app-meetinghover.svg</file>
+        <file>image/app-unithover.svg</file>
+        <file>image/app-helphover.svg</file>
+        <file>image/app-product1.png</file>
+        <file>image/app-host-isActive.svg</file>
+        <file>image/app-host-isReady.svg</file>
+        <file>image/app-hostSpeaker.svg</file>
+        <file>image/app-host-isConnected.svg</file>
+        <file>image/app-host-isNone.svg</file>
+        <file>image/app-refreshUnit.svg</file>
+        <file>image/app-refreshUnithover.svg</file>
+        <file>image/app-timer.svg</file>
+        <file>image/app-signal15.svg</file>
+        <file>image/app-signal25.svg</file>
+        <file>image/app-signal35.svg</file>
+        <file>image/app-signal45.svg</file>
+        <file>image/app-signal55.svg</file>
+        <file>image/app-signal1.svg</file>
+        <file>image/app-signal2.svg</file>
+        <file>image/app-signal3.svg</file>
+        <file>image/app-signal4.svg</file>
+        <file>image/app-signal5.svg</file>
+        <file>image/app-product2.jpg</file>
+    </qresource>
+</RCC>

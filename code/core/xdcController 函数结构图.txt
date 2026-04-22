@@ -1,0 +1,88 @@
+一、整体结构
+
+1. 构造函数
+   ├─ XdcController()
+   └─ ~XdcController()
+
+2. 初始化配置
+   └─ setupProtocolProcessor()
+
+3. 通用发送功能（底层）
+   ├─ sendToHost()           → 发送原始数据
+   ├─ sendCommand()          → 发送单个指令
+   └─ sendCommandQueue()     → 批量发送指令
+
+4. 通用回调处理（从 ProtocolProcessor）
+   ├─ onCommandResponseCompleted()  → 响应完成
+   └─ onCommandFailed()             → 请求失败
+
+5. 数据解析分发
+   └─ parseAndDispatch()     → 根据命令码分发
+
+6. 具体数据处理函数
+   ├─ handleVersionResponse()     → 处理版本号响应
+   └─ handleBuildDateResponse()   → 处理编译日期响应
+
+7. Getter 函数
+   └─ getHostProperties()    → 获取主机属性
+
+8. 主机操控功能（业务层）
+   └─ initializeHostProperties()  → 批量获取主机属性
+
+二、数据流 - 以音量信号为例
+
+场景 1：前端发送请求 → 主机响应（Request-Response）
+用户点击 UI "获取音量"
+  ↓
+XdcController::getWirelessVolume()
+  ↓ sendCommand(0x01, 0x0205, ...)
+  ↓
+ProtocolProcessor::sendCommand()
+  ↓ 加入队列，发送 Request (0x01, 0x0205)
+  ↓ switchState(Waiting)
+  ↓
+主机返回 Response (0x04, 0x0205, payload=[当前音量])
+  ↓
+HostManager::onFactoryDataReceived()
+  ↓ forwardFrameToHostController()
+  ↓
+XdcController::handleIncomingFrame()
+  ↓ m_protocolProcessor->handleIncomingFrame(rawFrame)
+  ↓
+ProtocolProcessor::handleIncomingFrame()
+  ↓ opCode != 0x02，跳过优先判断
+  ↓ m_state == Waiting，进入情况 1
+  ↓ matchesResponse() 匹配成功
+  ↓ emit responseCompleted(result)
+  ↓
+XdcController::onCommandResponseCompleted(result)
+  ↓ parseAndDispatch(result.parsedData)
+  ↓ handleWirelessVolumeResponse(frame)
+  ↓ 更新 m_volumeSettings["wirelessVolume"]
+  ↓ emit volumeSettingsChanged()
+  ↓ UI 自动更新
+
+场景 1：前端发送请求 → 主机响应（Request-Response）
+用户在主机面板旋转音量旋钮
+  ↓
+主机内部执行设置
+  ↓
+主机主动上报 Notify (0x02, 0x0205, payload=[新音量])
+  ↓
+HostManager::onFactoryDataReceived()
+  ↓ forwardFrameToHostController()
+  ↓
+XdcController::handleIncomingFrame()
+  ↓ m_protocolProcessor->handleIncomingFrame(rawFrame)
+  ↓
+ProtocolProcessor::handleIncomingFrame()
+  ↓ opCode == 0x02  判断为上报响应指令
+  ↓ emit unsolicitedNotifyReceived(rawFrame, parsedData)
+  ↓ return true（不再执行后续逻辑）
+  ↓
+XdcController::onUnsolicitedNotifyReceived(rawFrame, parsedData)
+  ↓ parseAndDispatch(parsedData)  复用同样的分发逻辑
+  ↓ handleWirelessVolumeResponse(frame)
+  ↓ 更新 m_volumeSettings["wirelessVolume"]
+  ↓ emit volumeSettingsChanged()
+  ↓ UI 自动同步显示新音量

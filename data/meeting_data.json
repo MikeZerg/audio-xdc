@@ -1,0 +1,164 @@
+﻿{
+  "scheduledMeetings": [
+    {
+      "mid": "SCHEDULE_001",
+      "subject": "2024年度产品规划会议",
+      "description": "讨论年度产品路线图和关键里程碑",
+      "startTime": "2024-12-20T09:00:00",
+      "durationSecs": 7200,
+      "expectedParticipants": 25,
+      "status": "NotStarted",
+      "hostAddresses": [1, 2, 3],
+      "checkInHistory": [],
+      "votingHistory": []
+    },
+    {
+      "mid": "SCHEDULE_002",
+      "subject": "技术评审会",
+      "description": "Q4技术方案评审",
+      "startTime": "2024-12-22T14:00:00",
+      "durationSecs": 5400,
+      "expectedParticipants": 12,
+      "status": "NotStarted",
+      "hostAddresses": [1, 2],
+      "checkInHistory": [],
+      "votingHistory": []
+    },
+    {
+      "mid": "SCHEDULE_003",
+      "subject": "团队周例会",
+      "description": "每周例行进度同步",
+      "startTime": "2024-12-23T10:00:00",
+      "durationSecs": 3600,
+      "expectedParticipants": 8,
+      "status": "NotStarted",
+      "hostAddresses": [1],
+      "checkInHistory": [],
+      "votingHistory": []
+    }
+  ],
+  "historicalMeetings": [
+    {
+      "mid": "HISTORY_001",
+      "subject": "2024年度启动大会",
+      "description": "年度战略宣导与团队建设",
+      "startTime": "2024-01-15T09:00:00",
+      "endTime": "2024-01-15T17:00:00",
+      "durationSecs": 28800,
+      "expectedParticipants": 50,
+      "status": "Ended",
+      "hostAddresses": [1, 2, 3],
+      "checkInHistory": [
+        {
+          "cid": 101,
+          "startTime": "2024-01-15T09:00:00",
+          "endTime": "2024-01-15T10:00:00",
+          "durationSecs": 3600,
+          "checkedInCount": 48,
+          "totalExpected": 50,
+          "results": {
+            "1001": "09:05:23",
+            "1002": "09:03:15",
+            "1003": "09:08:42"
+          }
+        }
+      ],
+      "votingHistory": [
+        {
+          "vid": 201,
+          "subject": "年度工作目标投票",
+          "startTime": "2024-01-15T14:00:00",
+          "endTime": "2024-01-15T14:30:00",
+          "durationSecs": 1800,
+          "options": [
+            {"label": "赞成", "value": 1},
+            {"label": "弃权", "value": 0},
+            {"label": "反对", "value": -1}
+          ],
+          "results": {
+            "totalVotes": 48,
+            "options": {
+              "1": {"count": 35, "percentage": 72.9},
+              "0": {"count": 8, "percentage": 16.7},
+              "-1": {"count": 5, "percentage": 10.4}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "mid": "HISTORY_002",
+      "subject": "产品需求评审会",
+      "description": "v2.0版本需求评审",
+      "startTime": "2024-03-10T13:30:00",
+      "endTime": "2024-03-10T16:30:00",
+      "durationSecs": 10800,
+      "expectedParticipants": 15,
+      "status": "Ended",
+      "hostAddresses": [1, 2],
+      "checkInHistory": [
+        {
+          "cid": 102,
+          "startTime": "2024-03-10T13:30:00",
+          "endTime": "2024-03-10T14:00:00",
+          "durationSecs": 1800,
+          "checkedInCount": 14,
+          "totalExpected": 15,
+          "results": {
+            "2001": "13:32:10",
+            "2002": "13:35:22",
+            "2003": "13:40:05"
+          }
+        }
+      ],
+      "votingHistory": [
+        {
+          "vid": 202,
+          "subject": "功能优先级投票",
+          "startTime": "2024-03-10T15:00:00",
+          "endTime": "2024-03-10T15:20:00",
+          "durationSecs": 1200,
+          "options": [
+            {"label": "功能A", "value": 1},
+            {"label": "功能B", "value": 2},
+            {"label": "功能C", "value": 3}
+          ],
+          "results": {
+            "totalVotes": 14,
+            "options": {
+              "1": {"count": 6, "percentage": 42.9},
+              "2": {"count": 5, "percentage": 35.7},
+              "3": {"count": 3, "percentage": 21.4}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "mid": "HISTORY_003",
+      "subject": "技术培训",
+      "description": "新技术框架培训",
+      "startTime": "2024-05-20T14:00:00",
+      "endTime": "2024-05-20T17:00:00",
+      "durationSecs": 10800,
+      "expectedParticipants": 20,
+      "status": "Ended",
+      "hostAddresses": [1, 3],
+      "checkInHistory": [
+        {
+          "cid": 103,
+          "startTime": "2024-05-20T14:00:00",
+          "endTime": "2024-05-20T14:30:00",
+          "durationSecs": 1800,
+          "checkedInCount": 18,
+          "totalExpected": 20,
+          "results": {
+            "3001": "14:02:30",
+            "3002": "14:05:15"
+          }
+        }
+      ],
+      "votingHistory": []
+    }
+  ]
+}
