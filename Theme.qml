@@ -22,6 +22,7 @@ QtObject {
     readonly property color text: "#D4BE98"     // 主文本颜色
     readonly property color textDim: "#E1D2B7"  // 次要文本颜色
     readonly property color textMenu: "#207D90"  // 菜单文本颜色
+    readonly property color textLit: "#DCDCE1"     // 浅色文本颜色
 
     // Font
     readonly property string fontFamily: "Microsoft YaHei"

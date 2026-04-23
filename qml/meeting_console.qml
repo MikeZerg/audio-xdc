@@ -116,7 +116,7 @@ ColumnLayout {
         Layout.preferredWidth: parent.width
         Layout.preferredHeight: 25
         Text {
-            text: "会议控制台"
+            text: "会议记录"
             font.pixelSize: 16
             color: Theme.text
             anchors.left: parent.left

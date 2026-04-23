@@ -6,7 +6,7 @@ import "./CustomWidget"
 
 
 ColumnLayout {
-    id: host_detecting_page
+    id: app_logs_page
     Layout.preferredWidth: parent.width * 0.90
     Layout.preferredHeight: parent.height * 0.90
     spacing: 0
@@ -17,7 +17,7 @@ ColumnLayout {
         Layout.preferredHeight: 25
 
         Text {
-            text: "检测在线主机及主机属性"
+            text: "系统日志"
             font.pixelSize: 16
             color: Theme.text
             anchors.left: parent.left

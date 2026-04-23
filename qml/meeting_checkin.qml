@@ -139,7 +139,7 @@ Rectangle {
 
                     Text {
                         text: "📋 当前签到"
-                        color: Theme.accent1
+                        color: Theme.textMenu
                     }
 
                     Item { Layout.fillWidth: true }
@@ -184,7 +184,7 @@ Rectangle {
 
                     Text {
                         text: "签到率: " + getCheckInPercentage() + "%"
-                        color: Theme.accent1
+                        color: Theme.textMenu
                     }
                 }
 
@@ -223,18 +223,11 @@ Rectangle {
                 model: []
 
                 delegate: Item {
+                    id: delegateItem
                     width: parent.width
+                    height: expanded ? 110 : 80
 
-                    // 高度定义：上部分+下部分，展开时加中间部分
-                    property int topHeight: 48      // 会议主题+时间行
-                    property int bottomHeight: 40    // 按钮区域
-                    property int middleHeight: 60    // 详情区域（展开时显示）
-
-                    property int foldedHeight: topHeight + bottomHeight
-                    property int expandedHeight: topHeight + middleHeight + bottomHeight
                     property bool expanded: false
-
-                    height: expanded ? expandedHeight : foldedHeight
 
                     Behavior on height {
                         NumberAnimation { duration: 200; easing.type: Easing.InOutQuad }
@@ -247,84 +240,72 @@ Rectangle {
                         border.color: Theme.borderLine
                         border.width: 1
                         opacity: 0.8
-                        clip: true
 
-                        ColumnLayout {
+                        Column {
                             anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: 0
+                            anchors.margins: 10
+                            spacing: 6
 
-                            // ========= 上部：会议主题 + 时间 =========
-                            ColumnLayout {
-                                Layout.fillWidth: true
+                            // ========= 第一行：会议主题 + 时间 =========
+                            RowLayout {
+                                width: parent.width
+                                height: 20
                                 spacing: 8
 
-                                RowLayout {
+                                Text {
+                                    text: modelData.meetingSubject || "会议"
+                                    color: Theme.text
+                                    font.pixelSize: 11
+                                    font.bold: true
                                     Layout.fillWidth: true
-                                    spacing: 8
-                                    Text {
-                                        text: modelData.meetingSubject || "会议"
-                                        color: Theme.text
-                                        font.pixelSize: 11
-                                        font.bold: true
-                                        Layout.fillWidth: true
-                                        elide: Text.ElideRight
-                                    }
-                                    Text {
-                                        text: formatDateTime(modelData.startTime)
-                                        color: Theme.text
-                                        font.pixelSize: 10
-                                    }
+                                    elide: Text.ElideRight
                                 }
-
-                                // 折叠状态下显示的简要信息行
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    visible: !expanded
-                                    Text {
-                                        text: "签到: " + (modelData.checkedInCount || 0) + "/" + (modelData.totalExpected || 0)
-                                        color: Theme.textDim
-                                        font.pixelSize: 10
-                                    }
-                                    Text {
-                                        text: "时长: " + formatDuration(modelData.durationSecs)
-                                        color: Theme.textDim
-                                        font.pixelSize: 10
-                                        Layout.fillWidth: true
-                                    }
+                                Text {
+                                    text: formatDateTime(modelData.startTime)
+                                    color: Theme.text
+                                    font.pixelSize: 10
+                                    Layout.preferredWidth: implicitWidth
                                 }
                             }
 
-                            // ========= 中部：详情信息（展开时显示） =========
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 8
+                            // ========= 第二行：签到信息 + 时长 =========
+                            RowLayout {
+                                width: parent.width
+                                height: 18
+                                spacing: 15
+
+                                Text {
+                                    text: "签到: " + (modelData.checkedInCount || 0) + "/" + (modelData.totalExpected || 0)
+                                    color: Theme.textDim
+                                    font.pixelSize: 10
+                                }
+                                Text {
+                                    text: "时长: " + formatDuration(modelData.durationSecs)
+                                    color: Theme.textDim
+                                    font.pixelSize: 10
+                                }
+                                Item { Layout.fillWidth: true }
+                            }
+
+                            // ========= 第三行：详情信息（仅展开时显示） =========
+                            Column {
+                                width: parent.width
                                 visible: expanded
-                                opacity: expanded ? 1 : 0
+                                spacing: 4
 
-                                Behavior on opacity {
-                                    NumberAnimation { duration: 200 }
+                                // 开始时间
+                                Text {
+                                    text: "开始时间: " + formatDateTime(modelData.startTime)
+                                    color: Theme.textDim
+                                    font.pixelSize: 10
                                 }
 
-                                Item { height: 4 }
-
+                                // 应到/实到/签到率
                                 RowLayout {
-                                    Layout.fillWidth: true
-                                    Text {
-                                        text: "开始时间: " + formatDateTime(modelData.startTime)
-                                        color: Theme.textDim
-                                        font.pixelSize: 10
-                                    }
-                                    Item { Layout.fillWidth: true }
-                                    Text {
-                                        text: "结束时间: " + formatDateTime(modelData.endTime)
-                                        color: Theme.textDim
-                                        font.pixelSize: 10
-                                    }
-                                }
+                                    width: parent.width
+                                    height: 18
+                                    spacing: 15
 
-                                RowLayout {
-                                    Layout.fillWidth: true
                                     Text {
                                         text: "应到人数: " + (modelData.totalExpected || 0) + "人"
                                         color: Theme.textDim
@@ -342,33 +323,19 @@ Rectangle {
                                     }
                                     Item { Layout.fillWidth: true }
                                 }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text {
-                                        text: "会议时长: " + formatDuration(modelData.durationSecs)
-                                        color: Theme.textDim
-                                        font.pixelSize: 10
-                                    }
-                                    Item { Layout.fillWidth: true }
-                                }
                             }
 
-                            // ========= 弹性空间 =========
-                            Item { Layout.fillHeight: true }
-
-                            // ========= 下部：按钮区域 =========
-                            RowLayout {
-                                Layout.fillWidth: true
-                                height: bottomHeight
-                                spacing: 8
-
-                                Item { Layout.fillWidth: true }
+                            // ========= 底部：按钮区域 =========
+                            Item {
+                                width: parent.width
+                                height: 30
 
                                 CustomButton {
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
                                     text: expanded ? "收起" : "详情"
                                     height: 24
-                                    Layout.preferredWidth: 70
+                                    width: 60
                                     font.pixelSize: 10
                                     onClicked: expanded = !expanded
                                 }

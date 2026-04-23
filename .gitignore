@@ -29,3 +29,6 @@ Thumbs.db
 # Qt Creator 用户配置（整个文件夹）
 .qtcreator/
 *.qws
+
+# 用户临时文件
+temp/

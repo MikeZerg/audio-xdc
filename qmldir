@@ -16,6 +16,7 @@ CustomRadioButton 1.0 qml/CustomWidget/CustomRadioButton.qml
 CustomMultipleCheckBox 1.0 qml/CustomWidget/CustomMultipleCheckBox.qml
 CustomCheckBox 1.0 qml/CustomWidget/CustomCheckBox.qml
 CustomSlider 1.0 qml/CustomWidget/CustomSlider.qml
+CustomTimeLine 1.0 qml/CustomWidget/CustomTimeLine.qml
 
 CustomHostUnit 1.0 qml/CustomWidget/CustomHostUnit.qml
 CustomAFHUnit 1.0 qml/CustomWidget/CustomAFHUnit.qml

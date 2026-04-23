@@ -37,51 +37,53 @@ qt_add_qml_module(appaudio-xdc
 
     QML_FILES
         # 自定义控件
-        qml/CustomWidget/CustomTreeMenu.qml
-        qml/CustomWidget/CustomTreeMenuData.qml
-        qml/CustomWidget/CustomIcon.qml
-        qml/CustomWidget/CustomCombox.qml
-        qml/CustomWidget/CustomTextField.qml
-        qml/CustomWidget/CustomSpin.qml
-        qml/CustomWidget/CustomButton.qml
-        qml/CustomWidget/CustomRectangle.qml
-        qml/CustomWidget/CustomDatetimePicker.qml
-        qml/CustomWidget/CustomRadioButton.qml
-        QML_FILES qml/CustomWidget/CustomCheckBox.qml
-        qml/CustomWidget/CustomMultipleCheckBox.qml
-        qml/CustomWidget/CustomSlider.qml
+        qml/CustomWidget/CustomTreeMenu.qml             # 菜单树，页面结构核心
+        qml/CustomWidget/CustomTreeMenuData.qml         # 菜单树数据，页面结构核心
+        qml/CustomWidget/CustomIcon.qml                 # 主菜单图标
+        qml/CustomWidget/CustomCombox.qml               # 自定义下拉框
+        qml/CustomWidget/CustomTextField.qml            # 自定义文本输入框
+        qml/CustomWidget/CustomSpin.qml                 # 自定义微调输入框
+        qml/CustomWidget/CustomButton.qml               # 自定义按钮
+        qml/CustomWidget/CustomRectangle.qml            # 自定义矩形框
+        qml/CustomWidget/CustomDatetimePicker.qml       # 自定义日期输入/选择框
+        qml/CustomWidget/CustomRadioButton.qml          # 自定义单选按钮
+        QML_FILES qml/CustomWidget/CustomCheckBox.qml   # 自定义多选框
+        qml/CustomWidget/CustomMultipleCheckBox.qml     # 自定义多选框组合
+        qml/CustomWidget/CustomSlider.qml               # 自定义滑块调整框
+        qml/CustomWidget/CustomTimeLine.qml             # 自定义日历时间线控件
+
+
+        # 自定义主机组件（集成设备模块）
+        qml/CustomWidget/CustomHostUnit.qml             # XDC主机模型
+        # 自定义单元组件（集成设备模块）
+        qml/CustomWidget/CustomUnitCard.qml             # XDC主机单元模型
+        qml/CustomWidget/CustomUnitDetailPanel.qml      # XDC主机单元详情面板
+        # 自定义主机组件（集成设备模块）
+        qml/CustomWidget/CustomAFHUnit.qml              # DS主机模型
 
         # 启动界面
-        qml/startup_product.qml
+        qml/startup_product.qml         # 启动产品介绍页面
 
         # 主机管理界面
-        qml/host_connection.qml
-        qml/host_detection.qml # 临时，可以删除
-        qml/host_detecting.qml
+        qml/host_connection.qml         # 主机-连接界面
+        qml/host_detecting.qml          # 主机-检测界面
+        qml/host_detection.qml          # 临时，可以删除
+
 
         # XDC主机界面
-        qml/host_info_xdc.qml
-        qml/host_settings_xdc.qml
-        qml/host_rssi_xdc.qml
+        qml/host_info_xdc.qml           # 主机信息副页面，加载于主机-检测界面
+        qml/host_settings_xdc.qml       # 主机设置页面
+        qml/host_rssi_xdc.qml           # 主机监测通道，无线通道信号测试
         # XDC 单元界面
-        qml/host_unit_xdc.qml
-        qml/app_logs_test.qml
-        # 自定义主机组件（集成设备模块）
-        qml/CustomWidget/CustomHostUnit.qml
-        qml/CustomWidget/CustomHostCard.qml     # 临时，可以删除
-        # 自定义单元组件（集成设备模块）
-        qml/CustomWidget/CustomUnitCard.qml
-        qml/CustomWidget/CustomUnitDetailPanel.qml
+        qml/host_unit_xdc.qml           # 主机单元管理页面
 
         # DS主机界面
-        qml/host_info_ds.qml
-        qml/host_settings_ds.qml
-        qml/host_rssi_ds.qml
-        # 自定义主机组件（集成设备模块）
-        qml/CustomWidget/CustomAFHUnit.qml
+        qml/host_info_ds.qml            # DS主机信息副页面
+        qml/host_settings_ds.qml        # DS主机设置页面
+        qml/host_rssi_ds.qml            # DS信号监测页面
 
         #XDC236会议管理界面
-        qml/meeting_management.qml
+        qml/meeting_calendar.qml
         qml/meeting_console.qml
         qml/CustomWidget/PanelCreateMeeting.qml
         qml/CustomWidget/PanelCreateCheckin.qml
@@ -90,11 +92,13 @@ qt_add_qml_module(appaudio-xdc
         qml/meeting_checkin.qml
         qml/meeting_voting.qml
 
-
         # QML日志
-        qml/app_logs.qml
-        qml/app_settings.qml
+        qml/app_logs.qml                # 系统全局日志
+        qml/app_settings.qml            # 系统全局设置
+        qml/app_help.qml                # 系统帮助说明
+
         qml/TestCharts.qml
+        qml/app_logs_test.qml
 
     SOURCES
         # 会议管理器

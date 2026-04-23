@@ -5,12 +5,10 @@ import "./CustomWidget"
 
 
 ColumnLayout {
-    id: root
+    id: meeting_active_page
     Layout.preferredWidth: parent.width * 0.90
     Layout.preferredHeight: parent.height * 0.90
     spacing: 0
-
-
 
     // 直接使用全局注入的 meetingManager，不定义局部 property 以免遮蔽
     property bool hasActiveMeeting: false
@@ -47,6 +45,7 @@ ColumnLayout {
         }
     }
 
+    // 获取当前会议，返回bool值结果
     function getCurrentMeeting() {
         return meetingManager ? (meetingManager.currentMeeting || {}) : {}
     }
@@ -62,12 +61,14 @@ ColumnLayout {
         return hasActiveMeeting
     }
 
+    // 格式化日期时间
     function formatDateTime(dateTime) {
         if (!dateTime) return "N/A"
         var date = new Date(dateTime)
         return isNaN(date.getTime()) ? "N/A" : date.toLocaleString()
     }
 
+    // 格式化计时器
     function formatElapsedTime(startTime) {
         if (!startTime) return "0分钟"
         var now = new Date()
@@ -87,6 +88,7 @@ ColumnLayout {
         return minutes + "分钟"
     }
 
+    // 获取总参会人数
     function getTotalParticipants() {
         if (meetingManager && meetingManager.getTotalParticipantCount) {
             return meetingManager.getTotalParticipantCount() || 0
@@ -94,30 +96,35 @@ ColumnLayout {
         return 0
     }
 
+    // 获取签到计数
     function getCheckedInCount() {
         var meeting = getCurrentMeeting()
         var checkin = meeting.currentCheckIn || {}
         return checkin.results ? Object.keys(checkin.results).length : 0
     }
 
+    // 获取签到百分
     function getCheckInPercentage() {
         var total = getTotalParticipants()
         if (total === 0) return 0
         return (getCheckedInCount() / total * 100).toFixed(1)
     }
 
+    // 获取投票计数
     function getVotedCount() {
         var meeting = getCurrentMeeting()
         var voting = meeting.currentVoting || {}
         return voting.results ? Object.keys(voting.results).length : 0
     }
 
+    // 获取投票百分比
     function getVotePercentage() {
         var total = getTotalParticipants()
         if (total === 0) return 0
         return (getVotedCount() / total * 100).toFixed(1)
     }
 
+    // 获取会议关联主机（可以与其创建会议活动，不影响单独联机操控主机）
     function getFormattedHosts() {
         if (!meetingManager || !meetingManager.meetingHosts) return "未关联"
         var hosts = meetingManager.meetingHosts
@@ -125,10 +132,11 @@ ColumnLayout {
         return hosts.map(addr => "0x" + addr.toString(16).toUpperCase().padStart(2, '0')).join(", ")
     }
 
+    // 打开创建签到事件面板
     function openCreateCheckinPanel() {
         var component = Qt.createComponent("CustomWidget/PanelCreateCheckin.qml")
         if (component.status === Component.Ready) {
-            var panel = component.createObject(root, { parent: root })
+            var panel = component.createObject(meeting_active_page, { parent: meeting_active_page })
             panel.checkinCreated.connect(function(duration) {
                 if (meetingManager) meetingManager.createCheckInEvent(duration)
             })
@@ -136,10 +144,11 @@ ColumnLayout {
         }
     }
 
+    // 打开创建投票事件面板
     function openCreateVotingPanel() {
         var component = Qt.createComponent("CustomWidget/PanelCreateVoting.qml")
         if (component.status === Component.Ready) {
-            var panel = component.createObject(root, { parent: root })
+            var panel = component.createObject(meeting_active_page, { parent: meeting_active_page })
             panel.votingCreated.connect(function(subject, duration, voteType, customOptions) {
                 if (meetingManager) {
                     if (voteType === "referendum") {
@@ -189,12 +198,12 @@ ColumnLayout {
         height: 1
         color: Theme.borderLine
     }
-    Item { Layout.preferredWidth: parent.width; Layout.preferredHeight: 20 }    // 占位行
+    Item { Layout.preferredWidth: parent.width; Layout.preferredHeight: 40 }    // 占位行
 
 
     // --- 无会议状态 ---
     ColumnLayout {
-        visible: !hasActiveMeeting
+        //visible: !hasActiveMeeting
         Layout.fillWidth: true
         Layout.fillHeight: true
         spacing: 20
@@ -213,7 +222,7 @@ ColumnLayout {
 
     // --- 有会议状态 ---
     ColumnLayout {
-        visible: hasActiveMeeting
+        //visible: hasActiveMeeting
         Layout.fillWidth: true
         spacing: 15
 

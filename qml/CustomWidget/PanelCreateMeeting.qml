@@ -20,6 +20,7 @@ Popup {
     height: parent.height
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     x: parent.width
+    y: (parent.height - height) / 2
     padding: 0
     modal: true
 

@@ -33,7 +33,7 @@ QtObject {
             {id: "F3-11", name: "实时会议", level: 2, parentId: "F3-10", page:"qml/meeting_active.qml"},
             {id: "F3-12", name: "签到记录", level: 2, parentId: "F3-10", page:"qml/meeting_checkin.qml"},
             {id: "F3-13", name: "投票记录", level: 2, parentId: "F3-10", page:"qml/meeting_voting.qml"},
-            {id: "F3-14", name: "会场设置", level: 2, parentId: "F3-10", page:""}
+            {id: "F3-14", name: "会场设置", level: 2, parentId: "F3-10", page:"qml/meeting_calendar.qml"}
         ],
         "F4": [
             {id: "F4-10", name: "日志与调试", level: 1, page:"qml/app_logs.qml"},
@@ -41,7 +41,7 @@ QtObject {
         ],
 
         "F5": [
-            {id: "F5-10", name: "帮助", level: 1, page:""}
+            {id: "F5-10", name: "帮助", level: 1, page:"qml/app_help.qml"}
         ]
     }
 }

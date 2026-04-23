@@ -62,6 +62,7 @@ Item {
                     font.pixelSize: 12
                     font.bold: true
                     Layout.preferredWidth: 60
+                    opacity: 0.8
                 }
                 Item { Layout.fillWidth: true }
             }
