@@ -72,6 +72,31 @@ QtObject {
         "#5B8CB8"       // [11] 自定义9 - 柔和天蓝， value= 10
     ]
 
+    // 会议项颜色池（根据会议主题哈希值选择）
+    readonly property var meetingColors: [
+        "#4CAF50",  // 绿色
+        "#2196F3",  // 蓝色
+        "#FF9800",  // 橙色
+        "#9C27B0",  // 紫色
+        "#F44336",  // 红色
+        "#00BCD4",  // 青色
+        "#795548",  // 棕色
+        "#607D8B",  // 灰蓝色
+        "#E91E63",  // 粉色
+        "#8BC34A",  // 草绿色
+        "#FF5722",  // 深橙色
+        "#673AB7"   // 深紫色
+    ]
+    // 会议项默认背景色
+    readonly property color meetingItemColor: "#4CAF50"
+    // 会议项文字颜色
+    readonly property color meetingItemTextColor: Theme.textDim
+    // 会议项边框颜色
+    readonly property color meetingItemBorderColor: Qt.lighter(meetingItemColor, 1.2)
+    // 会议项透明度
+    readonly property real meetingItemOpacity: 0.65
+
+
     // ---------------- 主机模型样式配置 --------------------
     // Progress Bar
     readonly property color progressBar: "#4CAF50"

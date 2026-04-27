@@ -1,4 +1,4 @@
-// host_speech_status_xdc.qml - XDC236 主机单元状态显示组件
+// host_unit_xdc.qml - XDC236 主机单元状态显示组件
 import QtQuick 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Controls 2.15
@@ -13,7 +13,7 @@ ColumnLayout {
 
     // ==================== 控制器与模型管理 ====================
 
-    // 当前活动主机地址
+    // 当前选中主机地址 - [修复] 使用 selectedHostAddressInt
     property int currentHostAddress: 0
 
     // 当前主机的控制器对象
@@ -86,22 +86,20 @@ ColumnLayout {
 
     // ==================== 控制器管理函数 ====================
 
-    // ========== 初始化当前活动主机 ==========
+    // ========== 初始化当前选中主机 ========== [修复] 使用 selectedHostAddressInt
     function initCurrentHost() {
         if (!hostManager) {
             console.debug("XdcSpeechStatus: hostManager 为空")
             return
         }
 
-        var addrStr = hostManager.activeHostAddress
-        console.debug("XdcSpeechStatus: 当前活动主机地址:", addrStr)
+        // [修复] 使用 selectedHostAddressInt 替代 activeHostAddress
+        var addr = hostManager.selectedHostAddressInt
+        console.debug("XdcSpeechStatus: 当前选中主机地址:", addr)
 
-        if (addrStr && addrStr !== "") {
-            var addr = parseInt(addrStr)
-            if (!isNaN(addr) && addr > 0) {
-                currentHostAddress = addr
-                refreshController()
-            }
+        if (addr > 0) {
+            currentHostAddress = addr
+            refreshController()
         } else {
             currentHostAddress = 0
             currentController = null
@@ -116,8 +114,8 @@ ColumnLayout {
     function refreshController() {
         if (currentHostAddress > 0 && hostManager) {
             var ctrl = hostManager.getController(currentHostAddress)
-            console.debug("XdcSpeechStatus: 刷新控制器 - 地址:",
-                         currentHostAddress,
+            console.debug("XdcSpeechStatus: 刷新控制器 - 地址: 0x" +
+                         currentHostAddress.toString(16),
                          "控制器:", ctrl ? "有效" : "无效")
 
             if (ctrl !== currentController) {
@@ -187,15 +185,15 @@ ColumnLayout {
 
     // ==================== 信号连接 ====================
 
-    // 监听活动主机变化
+    // [修复] 将 onActiveHostChanged 改为 onSelectedHostChanged
     Connections {
         target: hostManager
         enabled: hostManager !== null
 
-        function onActiveHostChanged(oldAddress, newAddress) {
-            console.debug("XdcSpeechStatus: 活动主机变更",
-                         "旧地址:", oldAddress,
-                         "新地址:", newAddress)
+        function onSelectedHostChanged(oldAddress, newAddress) {
+            console.debug("XdcSpeechStatus: 选中主机变更",
+                         "旧地址: 0x" + oldAddress.toString(16),
+                         "新地址: 0x" + newAddress.toString(16))
 
             if (newAddress > 0) {
                 currentHostAddress = newAddress
@@ -301,11 +299,11 @@ ColumnLayout {
                     Label { text: "注册单元："; color: Theme.text; font.pixelSize: 12 }
                     Label { text: registeredCount; color: Theme.text; font.pixelSize: 12 }
                     Item { Layout.preferredWidth: 20 }
+                    Label { text: "最大发言人数："; color: Theme.text; font.pixelSize: 12 }
+                    Label { text: maxSpeechCountValue; color: Theme.text; font.pixelSize: 12 }
+                    Item { Layout.preferredWidth: 20 }
                     Label { text: "发言模式："; color: Theme.text; font.pixelSize: 12 }
                     Label { text: speechModeText; color: Theme.text; font.pixelSize: 12 }
-                    Item { Layout.preferredWidth: 20 }
-                    Label { text: "发言人数："; color: Theme.text; font.pixelSize: 12 }
-                    Label { text: maxSpeechCountValue; color: Theme.text; font.pixelSize: 12 }
                     Item { Layout.fillWidth: true }
 
                     // 刷新单元列表图标按钮
@@ -335,7 +333,7 @@ ColumnLayout {
                                     if (currentController) {
                                         currentController.getAllUnits()
                                     } else {
-                                        console.debug("无活动主机,请先检测主机。")
+                                        console.debug("无选中主机,请先检测并选中主机。")
                                     }
                                 }
                             }

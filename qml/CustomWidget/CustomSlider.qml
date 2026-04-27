@@ -17,6 +17,21 @@ Slider {
     property color handleBorderColor: Theme.borderLineL  // 滑块边框颜色
     property double handleBorderWidth: 1                 // 滑块边框宽度
 
+    // [修复] 添加一个属性来存储整数值，避免浮点数精度问题
+    property int intValue: Math.round(value)
+
+    // [修复] 当滑块值变化时，更新 intValue
+    onValueChanged: {
+        intValue = Math.round(value)
+    }
+
+    // [修复] 当 intValue 从外部变化时，更新滑块值
+    onIntValueChanged: {
+        if (Math.abs(value - intValue) > 0.1) {
+            value = intValue
+        }
+    }
+
     // 计算滑块圆角半径
     function getHandleRadius() {
         var defaultRadius = customSlider.handleSize / 2

@@ -67,7 +67,9 @@ signals:
 
 private:
     explicit LogManager(QObject* parent = nullptr);
-    // 将日志行追加写入到 logs.txt 文件
+    // 获取日志文件路径（根据编译模式自动选择）
+    QString getLogFilePath() const;
+    // 将日志行追加写入到日志文件
     void writeToFile(const QString& logLine);
     // 核心过滤逻辑：根据当前模式判断是否应该记录该级别的日志
     bool shouldLog(LogLevel level) const;

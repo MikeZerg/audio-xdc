@@ -1,3 +1,4 @@
+// qml/meeting_calendar.qml
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
@@ -8,16 +9,14 @@ Item {
 
     property date selectedDate: new Date()
     property string viewMode: "week"
-    property var meetingManager: null
 
-    // 预计算当月第一天是周几，避免在 Repeater 中频繁计算
     readonly property int firstDayOfWeek: new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1).getDay()
 
     ColumnLayout {
         anchors.fill: parent
         spacing: 6
 
-        // 头部（标题，选择主视图的模式日视图，工作周视图，周视图）
+        // 顶部标题 （标题及视图选项）
         Rectangle {
             Layout.fillWidth: true
             height: 56
@@ -51,7 +50,7 @@ Item {
                         checked: viewMode === modelData
                         onClicked: viewMode = modelData
 
-                        backgroundColor:  "transparent"
+                        backgroundColor: "transparent"
                         hoverColor: Theme.textMenu
                         pressedColor: Qt.darker(Theme.textMenu, 1.3)
 
@@ -64,13 +63,13 @@ Item {
             }
         }
 
-        // 主体（左侧月历，右侧 “日-时间”视图
+        // 主体
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 6
 
-            // 左侧：自定义简易月历
+            // 左侧月历
             Rectangle {
                 Layout.preferredWidth: 300
                 Layout.fillHeight: true
@@ -126,7 +125,7 @@ Item {
                         }
                     }
 
-                    // 月份日期网格
+                    // 日期网格
                     Grid {
                         id: calendarGrid
                         Layout.fillWidth: true
@@ -145,6 +144,46 @@ Item {
                                     return d;
                                 }
 
+                                property bool isToday: {
+                                    var today = new Date()
+                                    return cellDate.toDateString() === today.toDateString()
+                                }
+
+                                property bool isSelected: cellDate.toDateString() === selectedDate.toDateString()
+
+                                property bool hasMeeting: false
+
+                                Component.onCompleted: {
+                                    updateHasMeeting()
+                                }
+
+                                onCellDateChanged: {
+                                    updateHasMeeting()
+                                }
+
+                                function updateHasMeeting() {
+                                    if (!meetingManager) {
+                                        hasMeeting = false
+                                        return
+                                    }
+                                    Qt.callLater(function() {
+                                        var meetings = meetingManager.scheduledMeetings
+                                        if (!meetings) {
+                                            hasMeeting = false
+                                            return
+                                        }
+                                        for (var i = 0; i < meetings.length; i++) {
+                                            var meeting = meetings[i]
+                                            var meetingDate = new Date(meeting.startTime)
+                                            if (meetingDate.toDateString() === cellDate.toDateString()) {
+                                                hasMeeting = true
+                                                return
+                                            }
+                                        }
+                                        hasMeeting = false
+                                    })
+                                }
+
                                 Rectangle {
                                     anchors.centerIn: parent
                                     anchors.margins: 1
@@ -155,20 +194,28 @@ Item {
 
                                     color: {
                                         if (cellDate.getMonth() !== selectedDate.getMonth()) return "transparent";
-                                        if (cellDate.toDateString() === selectedDate.toDateString()) return Theme.textMenu;
-                                        if (cellDate.toDateString() === new Date().toDateString()) return Theme.surfaceSelected;
+                                        if (isSelected) return Theme.textMenu;
+                                        if (isToday) return Theme.surfaceSelected;
                                         return "transparent";
                                     }
+
+                                    border.width: {
+                                        if (hasMeeting && !isToday && !isSelected) return 2;
+                                        return 0;
+                                    }
+                                    border.color: Theme.textMenu
 
                                     Text {
                                         anchors.centerIn: parent
                                         text: cellDate.getDate()
                                         color: {
                                             if (cellDate.getMonth() !== selectedDate.getMonth()) return "#565457";
-                                            if (cellDate.toDateString() === selectedDate.toDateString()) return "white";
+                                            if (isSelected) return "white";
+                                            if (hasMeeting && !isToday && !isSelected) return Theme.textMenu;
+                                            if (isToday) return Theme.text;
                                             return Theme.text;
                                         }
-                                        font.bold: cellDate.toDateString() === selectedDate.toDateString()
+                                        font.bold: isSelected
                                     }
 
                                     MouseArea {
@@ -183,9 +230,9 @@ Item {
                     CustomButton {
                         text: "今天"
                         onClicked: selectedDate = new Date()
-                        textColor: Theme.text;
+                        textColor: Theme.text
                         font.pixelSize: 11
-                        borderRadius: 6
+                        borderRadius: 4
                         borderWidth: 0.5
                         Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: 30
@@ -194,11 +241,10 @@ Item {
                     }
 
                     Item { Layout.fillHeight: true }
-
                 }
             }
 
-            // 右侧：时间轴 (集成 CustomTimeLine)
+            // 右侧时间轴
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -208,55 +254,108 @@ Item {
                 CustomTimeLine {
                     id: timeline
                     anchors.fill: parent
-                    // 传递当前选中的日期
                     currentDate: page.selectedDate
-                    // 传递当前的视图模式 (day/workweek/week)
                     displayMode: page.viewMode
-                    meetingManager: page.meetingManager
 
-                    onRequestCreateMeeting: (selectedDate) => {
+                    // [关键] 处理双击创建会议
+                    onRequestCreateMeeting: function(selectedDate) {
+                        console.log("[meeting_calendar] 双击创建会议，日期:", selectedDate)
+
                         var component = Qt.createComponent("./CustomWidget/PanelCreateMeeting.qml");
                         if (component.status === Component.Ready) {
                             var panel = component.createObject(page);
-                            panel.meetingManager = page.meetingManager;
-                            
-                            // 使用双击选中的日期，但时间为当前系统时间
+
                             var now = new Date();
                             var defaultStartTime = new Date(selectedDate);
                             defaultStartTime.setHours(now.getHours(), now.getMinutes(), 0, 0);
                             panel.startTime = Qt.formatDateTime(defaultStartTime, "yyyy-MM-dd HH:mm");
-                            
+
                             panel.meetingCreated.connect(function(meetingData) {
-                                if (page.meetingManager) {
-                                    page.meetingManager.createScheduledMeeting(
+                                if (meetingManager) {
+                                    meetingManager.createScheduledMeeting(
                                         meetingData.subject,
                                         meetingData.description,
                                         new Date(meetingData.startTime),
-                                        meetingData.durationMinutes
+                                        meetingData.durationMinutes,
+                                        meetingData.expectedParticipants || 0
                                     );
                                 }
                                 panel.destroy();
                             });
-                            
+
                             panel.open();
-                        } else if (component.status === Component.Error) {
+                        } else {
                             console.error("创建 PanelCreateMeeting 失败:", component.errorString());
                         }
                     }
 
-                    onMeetingCreated: (meetingData) => {
-                        // 处理会议创建逻辑，例如调用 meetingManager 创建会议
-                        if (page.meetingManager) {
-                            page.meetingManager.createScheduledMeeting(
-                                meetingData.subject,
-                                meetingData.description,
-                                new Date(meetingData.startTime),
-                                meetingData.durationMinutes
-                            );
+                    // [关键] 单击查看会议详情
+                    onMeetingClicked: function(meetingId) {
+                            console.log("[meeting_calendar] 打开会议详情面板，ID:", meetingId)
+
+                            // 从 MeetingManager 获取会议详细信息
+                            if (!meetingManager) {
+                                console.error("[meeting_calendar] meetingManager 未找到")
+                                return
+                            }
+
+                            // 查找会议信息
+                            var targetMeeting = null
+
+                            // 先在预定会议中查找
+                            var scheduledMeetings = meetingManager.scheduledMeetings
+                            for (var i = 0; i < scheduledMeetings.length; i++) {
+                                if (scheduledMeetings[i].mid === meetingId) {
+                                    targetMeeting = scheduledMeetings[i]
+                                    targetMeeting.isCompleted = false
+                                    break
+                                }
+                            }
+
+                            // 如果没找到，在历史会议中查找
+                            if (!targetMeeting) {
+                                var historicalMeetings = meetingManager.historicalMeetings
+                                for (var ik = 0; ik < historicalMeetings.length; ik++) {
+                                    if (historicalMeetings[ik].mid === meetingId) {
+                                        targetMeeting = historicalMeetings[ik]
+                                        targetMeeting.isCompleted = true
+                                        break
+                                    }
+                                }
+                            }
+
+                            if (!targetMeeting) {
+                                console.error("[meeting_calendar] 未找到会议，ID:", meetingId)
+                                return
+                            }
+
+                            // 创建 PanelViewMeeting 弹窗
+                            var component = Qt.createComponent("./CustomWidget/PanelViewMeeting.qml")
+                            if (component.status === Component.Ready) {
+                                var panel = component.createObject(page)
+                                panel.meetingData = targetMeeting
+                                panel.open()
+                            } else {
+                                console.error("创建 PanelViewMeeting 失败:", component.errorString())
+                            }
                         }
-                    }
                 }
             }
         }
+    }
+
+    // 监听会议管理器变化
+    Connections {
+        target: meetingManager
+        enabled: meetingManager !== null
+
+        function onSignal_meetingUpdated() {
+            calendarGrid.visible = false
+            calendarGrid.visible = true
+        }
+    }
+
+    Component.onCompleted: {
+        console.log("[meeting_calendar] 初始化完成")
     }
 }

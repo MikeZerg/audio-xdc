@@ -260,4 +260,12 @@ ApplicationWindow {
             }
         }
     }
+
+
+    // 在 Main.qml 的 Component.onCompleted 中加载JSON会议数据文件
+    Component.onCompleted: {
+        if (meetingManager) {
+            meetingManager.loadMeetingsFromJson();
+        }
+    }
 }

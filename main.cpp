@@ -16,6 +16,13 @@ int main(int argc, char *argv[])
     // 设置环境变量，允许 QML 中的 XMLHttpRequest 读取本地文件
     qputenv("QML_XHR_ALLOW_FILE_READ", "1");
 
+    // 设置应用程序元信息（影响 QStandardPaths 的路径）
+    // 发布模式 (Release)数据存储路径	C:\Users\用户名\AppData\Local\iweek\audioxdc\meeting_data.json
+    QCoreApplication::setOrganizationName("iweek");
+    QCoreApplication::setOrganizationDomain("iweek.com");
+    QCoreApplication::setApplicationName("audioxdc");
+    QCoreApplication::setApplicationVersion("1.0.0");
+
     QGuiApplication app(argc, argv);
 
     // 设置应用程序图标

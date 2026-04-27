@@ -12,7 +12,7 @@ ColumnLayout {
 
     property int flexWidth: parent.width / 30
 
-    // 添加选中主机的属性
+    // [修复] 添加选中主机的属性 - 使用 selectedHostAddressInt
     property int selectedHostAddress: 0
 
     property var controller: null
@@ -25,16 +25,22 @@ ColumnLayout {
     property var speechSettings: controller ? controller.viewSpeechSettings : null
     property var cameraSettings: controller ? controller.viewCameraSettings : null
 
+    // [修复] 刷新控制器 - 使用 selectedHostAddressInt
     function refreshController() {
         if (typeof hostManager === 'undefined' || !hostManager) {
             controller = null;
+            selectedHostAddress = 0;
             return;
         }
-        var addr = hostManager.activeHostAddress;
+        // [关键修复] 使用 selectedHostAddressInt 替代 activeHostAddress
+        var addr = hostManager.selectedHostAddressInt;
+        selectedHostAddress = addr;
         if (addr > 0) {
             controller = hostManager.getController(addr);
+            console.log("host_settings_xdc: 获取控制器, 地址=0x" + addr.toString(16));
         } else {
             controller = null;
+            console.log("host_settings_xdc: 没有选中的主机");
         }
         // 刷新显示
         forceUpdate = !forceUpdate
@@ -42,6 +48,23 @@ ColumnLayout {
 
     Component.onCompleted: {
         refreshController()
+    }
+
+    // [新增] 监听选中主机变化
+    Connections {
+        target: hostManager
+        enabled: hostManager !== null
+
+        function onSelectedHostChanged(oldAddress, newAddress) {
+            console.log("host_settings_xdc: 选中主机变更 0x" + oldAddress.toString(16) + " -> 0x" + newAddress.toString(16))
+            refreshController()
+        }
+
+        function onHostInfoChanged(hostAddress) {
+            if (hostAddress === selectedHostAddress && selectedHostAddress > 0) {
+                refreshController()
+            }
+        }
     }
 
     // 顶部标题
@@ -75,8 +98,16 @@ ColumnLayout {
             color: Theme.text
         }
         Label {
-            text: "地址：" + (controller ? "0x" + controller.address.toString(16).toUpperCase().padStart(2, '0') : "XXX")
+            text: "地址：" + (controller ? "0x" + controller.address.toString(16).toUpperCase().padStart(2, '0') : "---")
             color: Theme.text
+        }
+
+        // 当没有选中主机时显示提示
+        Label {
+            text: controller ? "" : " (请先在主机列表中选择一个已就绪的主机)"
+            color: Theme.textDim
+            font.pixelSize: 11
+            visible: controller === null
         }
     }
 
@@ -89,13 +120,31 @@ ColumnLayout {
         color: "transparent"
 
         border.color: Qt.hsla(0, 0, 0.5, 0.15)
-        border.width: 0.5
+        border.width: 0.7
+
+        // 当没有控制器时显示提示
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.background
+            opacity: 0.7
+            visible: controller === null
+            z: 1
+
+            Text {
+                anchors.centerIn: parent
+                text: ""  //"请先在主机列表中选择一个已就绪的 XDC236 主机"
+                color: Theme.text
+                opacity: 0.5
+                font.pixelSize: 14
+            }
+        }
 
         ScrollView {
             id: scrollView
             anchors.fill: parent
             clip: true
             contentWidth: availableWidth
+            enabled: controller !== null
             ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
             ColumnLayout {
@@ -124,15 +173,16 @@ ColumnLayout {
                         Layout.preferredHeight: 26
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // [修改] 使用与 host_info_xdc 相同的简洁显示方式
                     Label {
                         id: systemTimeValue
                         text: {
                             if (controller && controller.viewSystemDateTime) {
                                 var dt = controller.viewSystemDateTime
                                 var dummy = host_settings_xdc_page.forceUpdate
-                                return Qt.formatDateTime(dt, "yyyy/MM/dd hh:mm:ss")
+                                return Qt.formatDateTime(dt, "yyyy-MM-dd hh:mm:ss")
                             }
-                            return Qt.formatDateTime(new Date(), "yyyy/MM/dd hh:mm:ss")
+                            return "--"
                         }
                         font.pixelSize: 11
                         color: Theme.text
@@ -161,7 +211,7 @@ ColumnLayout {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 26
                                 leftPadding: 4
-                                inputMask: "0000/00/00 00:00:00"
+                                inputMask: "0000-00-00 00:00:00"
                                 selectByMouse: true
                                 verticalAlignment: TextInput.AlignVCenter
                                 font.pixelSize: 11
@@ -179,7 +229,7 @@ ColumnLayout {
                                 visible: false
 
                                 onDateTimeConfirmed: {
-                                    inputSystemDatetime.text = Qt.formatDateTime(date, "yyyy/MM/dd hh:mm:ss")
+                                    inputSystemDatetime.text = Qt.formatDateTime(date, "yyyy-MM-dd hh:mm:ss")
                                     close()
                                 }
                             }
@@ -191,10 +241,9 @@ ColumnLayout {
                                 icon.height: 16
                                 display: AbstractButton.IconOnly
 
-                                // 完全自定义背景，根据 hovered 状态变化
                                 background: Rectangle {
-                                    color: parent.hovered ? Theme.surfaceSelected : "transparent"  // 悬停浅蓝，默认透明
-                                    radius: 2  // 圆角
+                                    color: parent.hovered ? Theme.surfaceSelected : "transparent"
+                                    radius: 2
                                 }
 
                                 onClicked: {
@@ -220,10 +269,15 @@ ColumnLayout {
                         borderWidth: 0.5
                         onClicked: {
                             if (controller) {
-                                var dateTime = new Date(inputSystemDatetime.text.replace(/\//g, '-'));
+                                var dateTime = new Date(inputSystemDatetime.text.replace(/-/g, '/'));
                                 if (dateTime instanceof Date && !isNaN(dateTime)) {
                                     var utcTime = Math.floor(dateTime.getTime() / 1000);
                                     controller.setSystemDateTime(utcTime);
+                                    console.log("设置系统时间:", dateTime.toLocaleString());
+                                    // [新增] 设置后延迟查询刷新
+                                    Qt.callLater(function() {
+                                        if (controller) controller.getSystemDateTime();
+                                    });
                                 } else {
                                     console.log("无效的日期时间格式:", inputSystemDatetime.text);
                                 }
@@ -251,6 +305,7 @@ ColumnLayout {
                         Layout.preferredHeight: 26
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // [修改] 使用与 host_info_xdc 相同的简洁显示方式
                     Label {
                         id: speechModeValue
                         text: {
@@ -260,7 +315,7 @@ ColumnLayout {
                                 if (mode === 0) return "先进先出"
                                 if (mode === 1) return "自锁模式"
                             }
-                            return "先进先出"
+                            return "--"
                         }
                         font.pixelSize: 11
                         color: Theme.text
@@ -327,6 +382,10 @@ ColumnLayout {
                                 var mode = speechModeFIFO.checked ? 0 : 1
                                 controller.setSpeechMode(mode)
                                 console.log("设置发言模式为:", speechModeValue.text)
+                                // [新增] 设置后延迟查询刷新
+                                Qt.callLater(function() {
+                                    if (controller) controller.getSpeechMode();
+                                });
                             }
                         }
                     }
@@ -351,6 +410,7 @@ ColumnLayout {
                         Layout.preferredHeight: 26
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // [修改] 使用与 host_info_xdc 相同的简洁显示方式
                     Label {
                         id: maxSpeakersValue
                         text: {
@@ -358,7 +418,7 @@ ColumnLayout {
                                 var dummy = host_settings_xdc_page.forceUpdate
                                 return speechSettings.maxSpeechCount + " / " + speechSettings.hardwareMaxSpeech
                             }
-                            return "3 / 4"
+                            return "--"
                         }
                         font.pixelSize: 11
                         color: Theme.text
@@ -404,6 +464,10 @@ ColumnLayout {
                             if (controller) {
                                 controller.setMaxSpeechCount(maxSpeakersSpin.value)
                                 console.log("设置最大发言数为:", maxSpeakersSpin.value)
+                                // [新增] 设置后延迟查询刷新
+                                Qt.callLater(function() {
+                                    if (controller) controller.getMaxSpeechCount();
+                                });
                             }
                         }
                     }
@@ -428,6 +492,7 @@ ColumnLayout {
                         Layout.preferredHeight: 26
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // [修改] 使用与 host_info_xdc 相同的简洁显示方式
                     Label {
                         id: wirelessVolumeValue
                         text: {
@@ -435,7 +500,7 @@ ColumnLayout {
                                 var dummy = host_settings_xdc_page.forceUpdate
                                 return (volumeSettings.wirelessVolume + 1) + " / " + volumeSettings.wirelessMaxVolume
                             }
-                            return "7 / 9"
+                            return "--"
                         }
                         font.pixelSize: 11
                         color: Theme.text
@@ -481,6 +546,10 @@ ColumnLayout {
                             if (controller) {
                                 controller.setWirelessVolume(wirelessVolumeSpin.value - 1)
                                 console.log("设置无线音量:", wirelessVolumeSpin.value)
+                                // [新增] 设置后延迟查询刷新
+                                Qt.callLater(function() {
+                                    if (controller) controller.getWirelessVolume();
+                                });
                             }
                         }
                     }
@@ -505,6 +574,7 @@ ColumnLayout {
                         Layout.preferredHeight: 26
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // [修改] 使用与 host_info_xdc 相同的简洁显示方式
                     Label {
                         id: wiredVolumeValue
                         text: {
@@ -512,7 +582,7 @@ ColumnLayout {
                                 var dummy = host_settings_xdc_page.forceUpdate
                                 return (volumeSettings.wiredVolume + 1) + " / " + volumeSettings.wiredMaxVolume
                             }
-                            return "6 / 7"
+                            return "--"
                         }
                         font.pixelSize: 11
                         color: Theme.text
@@ -558,6 +628,10 @@ ColumnLayout {
                             if (controller) {
                                 controller.setWiredVolume(wiredVolumeSpin.value - 1)
                                 console.log("设置有线音量:", wiredVolumeSpin.value)
+                                // [新增] 设置后延迟查询刷新
+                                Qt.callLater(function() {
+                                    if (controller) controller.getWiredVolume();
+                                });
                             }
                         }
                     }
@@ -582,6 +656,7 @@ ColumnLayout {
                         Layout.preferredHeight: 26
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // [修改] 使用与 host_info_xdc 相同的简洁显示方式
                     Label {
                         id: antennaVolumeValue
                         text: {
@@ -589,7 +664,7 @@ ColumnLayout {
                                 var dummy = host_settings_xdc_page.forceUpdate
                                 return (volumeSettings.antennaVolume + 1) + " / " + volumeSettings.antennaMaxVolume
                             }
-                            return "5 / 9"
+                            return "--"
                         }
                         font.pixelSize: 11
                         color: Theme.text
@@ -635,6 +710,10 @@ ColumnLayout {
                             if (controller) {
                                 controller.setAntennaVolume(antennaVolumeSpin.value - 1)
                                 console.log("设置天线盒音量:", antennaVolumeSpin.value)
+                                // [新增] 设置后延迟查询刷新
+                                Qt.callLater(function() {
+                                    if (controller) controller.getAntennaVolume();
+                                });
                             }
                         }
                     }
@@ -659,6 +738,7 @@ ColumnLayout {
                         Layout.preferredHeight: 26
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // [修改] 使用与 host_info_xdc 相同的简洁显示方式
                     Label {
                         id: audioPathValue
                         text: {
@@ -668,7 +748,7 @@ ColumnLayout {
                                 if (path === 0) return "主机"
                                 if (path === 1) return "天线盒"
                             }
-                            return "主机"
+                            return "--"
                         }
                         font.pixelSize: 11
                         color: Theme.text
@@ -735,6 +815,10 @@ ColumnLayout {
                                 var path = audioPathHost.checked ? 0 : 1
                                 controller.setWirelessAudioPath(path)
                                 console.log("设置无线音频路径:", audioPathHost.checked ? "主机" : "天线盒")
+                                // [新增] 设置后延迟查询刷新
+                                Qt.callLater(function() {
+                                    if (controller) controller.getWirelessAudioPath();
+                                });
                             }
                         }
                     }
@@ -759,6 +843,7 @@ ColumnLayout {
                         Layout.preferredHeight: 26
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // [修改] 使用与 host_info_xdc 相同的简洁显示方式
                     Label {
                         id: cameraAddrValue
                         text: {
@@ -766,7 +851,7 @@ ColumnLayout {
                                 var dummy = host_settings_xdc_page.forceUpdate
                                 return "0x" + cameraSettings.address.toString(16).toUpperCase().padStart(2, '0')
                             }
-                            return "0x01"
+                            return "--"
                         }
                         font.pixelSize: 11
                         color: Theme.text
@@ -807,6 +892,10 @@ ColumnLayout {
                             if (controller) {
                                 controller.setCameraAddress(cameraAddrSpin.value)
                                 console.log("设置摄像机地址:", cameraAddrSpin.value)
+                                // [新增] 设置后延迟查询刷新
+                                Qt.callLater(function() {
+                                    if (controller) controller.getCameraAddress();
+                                });
                             }
                         }
                     }
@@ -831,6 +920,7 @@ ColumnLayout {
                         Layout.preferredHeight: 26
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // [修改] 使用与 host_info_xdc 相同的简洁显示方式
                     Label {
                         id: cameraProtocolValue
                         text: {
@@ -842,7 +932,7 @@ ColumnLayout {
                                 if (protocol === 2) return "Peleco-D"
                                 if (protocol === 3) return "Peleco-P"
                             }
-                            return "Visca"
+                            return "--"
                         }
                         font.pixelSize: 11
                         color: Theme.text
@@ -940,13 +1030,17 @@ ColumnLayout {
                         borderWidth: 0.5
                         onClicked: {
                             if (controller) {
-                                var protocol = 1  // 默认 Visca
+                                var protocol = 1
                                 if (protocolNone.checked) protocol = 0
                                 else if (protocolVisca.checked) protocol = 1
                                 else if (protocolPelecoD.checked) protocol = 2
                                 else if (protocolPelecoP.checked) protocol = 3
                                 controller.setCameraProtocol(protocol)
                                 console.log("设置摄像机协议:", cameraProtocolValue.text)
+                                // [新增] 设置后延迟查询刷新
+                                Qt.callLater(function() {
+                                    if (controller) controller.getCameraProtocol();
+                                });
                             }
                         }
                     }
@@ -971,6 +1065,7 @@ ColumnLayout {
                         Layout.preferredHeight: 26
                         verticalAlignment: Text.AlignVCenter
                     }
+                    // [修改] 使用与 host_info_xdc 相同的简洁显示方式
                     Label {
                         id: cameraBaudrateValue
                         text: {
@@ -982,7 +1077,7 @@ ColumnLayout {
                                 if (baudrate === 2) return "9600 bps"
                                 if (baudrate === 3) return "115200 bps"
                             }
-                            return "115200 bps"
+                            return "--"
                         }
                         font.pixelSize: 11
                         color: Theme.text
@@ -1080,13 +1175,17 @@ ColumnLayout {
                         borderWidth: 0.5
                         onClicked: {
                             if (controller) {
-                                var baudrate = 3  // 默认 115200
+                                var baudrate = 3
                                 if (baudrate2400.checked) baudrate = 0
                                 else if (baudrate4800.checked) baudrate = 1
                                 else if (baudrate9600.checked) baudrate = 2
                                 else if (baudrate115200.checked) baudrate = 3
                                 controller.setCameraBaudrate(baudrate)
                                 console.log("设置摄像机波特率:", cameraBaudrateValue.text)
+                                // [新增] 设置后延迟查询刷新
+                                Qt.callLater(function() {
+                                    if (controller) controller.getCameraBaudrate();
+                                });
                             }
                         }
                     }
@@ -1119,6 +1218,7 @@ ColumnLayout {
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 120
             Layout.preferredHeight: 28
+            enabled: controller !== null
 
             onClicked: {
                 if (controller) {
@@ -1133,6 +1233,26 @@ ColumnLayout {
                     controller.setCameraAddress(1)       // 地址0x01
                     controller.setCameraBaudrate(3)      // 115200bps
                     console.log("加载默认设置完成")
+
+                    // [新增] 延迟后批量查询刷新所有设置
+                    Qt.callLater(function() {
+                        if (controller) {
+                            // 刷新音量设置
+                            controller.getWirelessVolume();
+                            controller.getWiredVolume();
+                            controller.getAntennaVolume();
+                            // 刷新发言设置
+                            controller.getSpeechMode();
+                            controller.getMaxSpeechCount();
+                            controller.getWirelessAudioPath();
+                            // 刷新摄像设置
+                            controller.getCameraProtocol();
+                            controller.getCameraAddress();
+                            controller.getCameraBaudrate();
+                            // 刷新时间
+                            controller.getSystemDateTime();
+                        }
+                    }, 300);  // 稍长延时，等待默认设置生效
                 }
             }
         }
@@ -1144,6 +1264,7 @@ ColumnLayout {
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 120
             Layout.preferredHeight: 28
+            enabled: controller !== null
 
             onClicked: {
                 if (controller) {
@@ -1177,6 +1298,22 @@ ColumnLayout {
                     controller.setCameraBaudrate(baudrate)
 
                     console.log("批量更新设置完成")
+
+                    // [新增] 延迟后批量查询刷新所有设置
+                    Qt.callLater(function() {
+                        if (controller) {
+                            controller.getWirelessVolume();
+                            controller.getWiredVolume();
+                            controller.getAntennaVolume();
+                            controller.getSpeechMode();
+                            controller.getMaxSpeechCount();
+                            controller.getWirelessAudioPath();
+                            controller.getCameraProtocol();
+                            controller.getCameraAddress();
+                            controller.getCameraBaudrate();
+                            controller.getSystemDateTime();
+                        }
+                    }, 200);
                 }
             }
         }

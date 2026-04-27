@@ -1,5 +1,8 @@
 // LogManager.cpp
 #include "LogManager.h"
+#include <QStandardPaths>
+#include <QDir>
+#include <QFileInfo>
 
 // 返回单例实例（线程安全的静态局部变量）
 LogManager* LogManager::instance() {
@@ -10,6 +13,19 @@ LogManager* LogManager::instance() {
 // 构造函数：初始化默认模式为 DebugMode，便于开发期排查问题
 LogManager::LogManager(QObject* parent) : QObject(parent), m_mode(DebugMode) {
     addLog("日志系统初始化完成，当前处于调试模式 (DebugMode)", INFO);
+}
+
+// 获取日志文件路径（根据编译模式自动选择）
+QString LogManager::getLogFilePath() const {
+#ifdef QT_DEBUG
+    // 调试模式：保存在项目目录下的 data 文件夹
+    return "data/logs.txt";
+#else
+    // 发布模式：使用 QStandardPaths 获取应用数据目录
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dataDir);
+    return dataDir + "/logs.txt";
+#endif
 }
 
 // 切换日志模式
@@ -32,7 +48,7 @@ void LogManager::setFilterKeywords(const QStringList& keywords) {
         m_filterKeywords = keywords;
         emit filterKeywordsChanged();
         // 关键词改变时，触发一次 logsChanged 让 UI 重新评估显示
-        emit logsChanged(); 
+        emit logsChanged();
     }
 }
 
@@ -44,7 +60,7 @@ QStringList LogManager::filterKeywords() const {
 // 检查日志内容是否匹配过滤关键词
 bool LogManager::matchesFilter(const QString& message) const {
     if (m_filterKeywords.isEmpty()) return true; // 无关键词则全部显示
-    
+
     for (const QString& keyword : m_filterKeywords) {
         if (message.contains(keyword, Qt::CaseInsensitive)) {
             return true;
@@ -70,17 +86,17 @@ void LogManager::addLog(const QString& message, LogLevel level) {
 
     QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
     QString logLevelStr;
-    
+
     // 根据级别生成简短的标签
     switch (level) {
-        case INFO: logLevelStr = "INFO"; break;
-        case WARNING: logLevelStr = "WARN"; break;
-        case ERROR: logLevelStr = "ERR"; break;
-        case DATA_RX: logLevelStr = "RX"; break;
-        case DATA_TX: logLevelStr = "TX"; break;
-        default: logLevelStr = "UNK"; break;
+    case INFO: logLevelStr = "INFO"; break;
+    case WARNING: logLevelStr = "WARN"; break;
+    case ERROR: logLevelStr = "ERR"; break;
+    case DATA_RX: logLevelStr = "RX"; break;
+    case DATA_TX: logLevelStr = "TX"; break;
+    default: logLevelStr = "UNK"; break;
     }
-    
+
     QString logLine = QString("[%1] [%2] %3").arg(timestamp, logLevelStr, message);
 
     // 性能优化：DATA 级别的日志只写文件，不放入 m_logs 列表，防止 QML UI 因高频刷新而卡顿
@@ -106,7 +122,16 @@ void LogManager::clearLogs()
 
 // 将日志行追加写入磁盘文件
 void LogManager::writeToFile(const QString& logLine) {
-    QFile file("logs.txt");
+    QString filePath = getLogFilePath();
+
+    // 确保目录存在
+    QFileInfo fi(filePath);
+    QDir dir(fi.absolutePath());
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+
+    QFile file(filePath);
     if (file.open(QIODevice::Append | QIODevice::Text)) {
         QTextStream out(&file);
         out << logLine << "\n";
@@ -121,17 +146,17 @@ void LogManager::addLogWithContext(const QString& message, LogLevel level, const
     QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
     QString logLevelStr;
     switch (level) {
-        case INFO: logLevelStr = "INFO"; break;
-        case WARNING: logLevelStr = "WARN"; break;
-        case ERROR: logLevelStr = "ERR"; break;
-        case DATA_RX: logLevelStr = "RX"; break;
-        case DATA_TX: logLevelStr = "TX"; break;
-        default: logLevelStr = "UNK"; break;
+    case INFO: logLevelStr = "INFO"; break;
+    case WARNING: logLevelStr = "WARN"; break;
+    case ERROR: logLevelStr = "ERR"; break;
+    case DATA_RX: logLevelStr = "RX"; break;
+    case DATA_TX: logLevelStr = "TX"; break;
+    default: logLevelStr = "UNK"; break;
     }
-    
+
     // 提取纯文件名，兼容 Windows (\) 和 Linux (/) 路径分隔符
     QString fileName = QString(file).section('/', -1).section('\\', -1);
-    
+
     // 格式化输出：[时间] [级别] [文件名:行号 函数名] 消息内容
     QString logLine = QString("[%1] [%2] [%3:%4 %5] %6")
                           .arg(timestamp, logLevelStr, fileName, QString::number(line), function, message);

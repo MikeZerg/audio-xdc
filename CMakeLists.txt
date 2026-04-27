@@ -31,8 +31,8 @@ qt_add_qml_module(appaudio-xdc
         Theme.qml
 
     RESOURCES
-        qmldir      # 样式文件Colors.qml单例生效的关键
-        Image.qrc
+        qmldir          # 样式文件Colors.qml单例生效的关键
+        Image.qrc       # 图片图标资源
         data/meeting_data.json
 
     QML_FILES
@@ -88,6 +88,7 @@ qt_add_qml_module(appaudio-xdc
         qml/CustomWidget/PanelCreateMeeting.qml
         qml/CustomWidget/PanelCreateCheckin.qml
         qml/CustomWidget/PanelCreateVoting.qml
+        qml/CustomWidget/PanelViewMeeting.qml
         qml/meeting_active.qml
         qml/meeting_checkin.qml
         qml/meeting_voting.qml

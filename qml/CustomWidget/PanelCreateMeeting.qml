@@ -1,21 +1,10 @@
+// qml/CustomWidget/PanelCreateMeeting.qml
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 
 Popup {
     id: root
-
-    property var meetingManager: null
-
-    signal meetingCreated(var meetingData)
-
-    property string meetingSubject: ""
-    property string meetingDescription: ""
-    property string startTime: Qt.formatDateTime(new Date(), "yyyy-MM-dd HH:mm")
-    property int durationMinutes: 30
-    property int expectedParticipants: 10
-    property var selectedHosts: []
-
     width: parent.width * 0.4
     height: parent.height
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -33,7 +22,6 @@ Popup {
             duration: 350
         }
     }
-
     exit: Transition {
         NumberAnimation {
             property: "x"
@@ -44,8 +32,39 @@ Popup {
         }
     }
 
-    background: Rectangle {
-        color: Theme.background
+    signal meetingCreated(var meetingData)
+
+    property string meetingSubject: ""
+    property string meetingDescription: ""
+    property string startTime: Qt.formatDateTime(new Date(), "yyyy-MM-dd HH:mm")
+    property int durationMinutes: 30
+    property int expectedParticipants: 10
+    property var selectedHosts: []
+
+    // 获取可用的会议主机列表（Ready 状态的主机）
+    function getAvailableMeetingHosts() {
+        var readyHosts = []
+        if (!hostManager) return readyHosts
+
+        var connectedList = hostManager.connectedHostList
+        for (var i = 0; i < connectedList.length; i++) {
+            var addr = connectedList[i]
+            var hostInfo = hostManager.getAllHostMap(addr)
+            if (hostInfo && hostInfo.isReady === true) {
+                readyHosts.push({
+                    address: addr,
+                    name: hostInfo.deviceTypeName || "主机 " + hostInfo.addressHex,
+                    addressHex: hostInfo.addressHex || ("0x" + addr.toString(16).toUpperCase().padStart(2, '0'))
+                })
+            }
+        }
+        return readyHosts
+    }
+
+    function refreshAvailableHosts() {
+        var hosts = getAvailableMeetingHosts()
+        hostSelector.availableHosts = hosts
+        console.log("[Panel] 刷新可用主机列表，数量:", hosts.length)
     }
 
     function resetForm() {
@@ -55,17 +74,21 @@ Popup {
         durationMinutes = 30
         expectedParticipants = 10
         selectedHosts = []
+        refreshAvailableHosts()
     }
 
-    // 日期时间选择器
     CustomDatetimePicker {
         id: dateTimePicker
         dialogWidth: root.width
         dialogHeight: 380
         customSpinWidth: root.width / 4
-        onDateTimeConfirmed: (selectedDate) => {
+        onDateTimeConfirmed: function(selectedDate) {
             startTime = Qt.formatDateTime(selectedDate, "yyyy-MM-dd HH:mm")
         }
+    }
+
+    background: Rectangle {
+        color: Theme.background
     }
 
     ColumnLayout {
@@ -133,7 +156,7 @@ Popup {
                     radius: Theme.radiusS
                     TextArea {
                         anchors.fill: parent
-                        anchors.margins: 8
+                        anchors.margins: 2
                         text: meetingDescription
                         onTextChanged: meetingDescription = text
                         color: Theme.text
@@ -184,13 +207,13 @@ Popup {
                         id: durationSlider
                         Layout.fillWidth: true
                         from: 15
-                        to: 240
+                        to: 480
                         stepSize: 15
                         value: durationMinutes
-                        onValueChanged: durationMinutes = value
-                        progressHeight: 6
-                        handleSize: 14
-                        handleRadius: 2
+                        onIntValueChanged: {
+                            durationMinutes = intValue
+                            // console.log("[Panel] 预定时长变化:", durationMinutes)
+                        }
                     }
                     Text {
                         text: durationMinutes + "分钟"
@@ -216,10 +239,9 @@ Popup {
                         to: 100
                         stepSize: 1
                         value: expectedParticipants
-                        onValueChanged: expectedParticipants = value
-                        progressHeight: 6
-                        handleSize: 14
-                        handleRadius: 2
+                        onIntValueChanged: {
+                            expectedParticipants = intValue
+                        }
                     }
                     Text {
                         text: expectedParticipants + "人"
@@ -233,16 +255,17 @@ Popup {
             CustomMultipleCheckBox {
                 id: hostSelector
                 Layout.fillWidth: true
-                Layout.preferredHeight: 70
+                Layout.preferredHeight: 90
                 title: "关联主机"
-                availableHosts: meetingManager ? meetingManager.getMeetingHosts().map(function(addr) {
-                    return {address: addr, name: "主机 " + addr}
-                }) : []
-                onSelectionChanged: selectedHosts = selectedAddresses
+                availableHosts: getAvailableMeetingHosts()
+                selectedHosts: root.selectedHosts
+                onSelectionChanged: function(selectedAddresses) {
+                    root.selectedHosts = selectedAddresses
+                    console.log("[PanelCreate] 选中的主机地址:", selectedHosts)
+                }
             }
         }
 
-        // 占位区间
         Item { Layout.fillHeight: true }
 
         Rectangle {
@@ -270,24 +293,68 @@ Popup {
                 Layout.preferredWidth: 80
                 Layout.preferredHeight: 26
 
-                backgroundColor:  Qt.darker(Theme.textMenu, 1.1)
+                backgroundColor: Qt.darker(Theme.textMenu, 1.1)
                 hoverColor: Theme.textMenu
                 pressedColor: Qt.darker(Theme.textMenu, 1.3)
 
                 enabled: meetingSubject.trim() !== ""
                 onClicked: {
-                    if (meetingSubject.trim() === "") return
-                    meetingCreated({
-                        subject: meetingSubject,
-                        description: meetingDescription,
-                        startTime: startTime,
-                        durationMinutes: durationMinutes,
-                        expectedParticipants: expectedParticipants,
-                        hostAddresses: selectedHosts
-                    })
-                    root.close()
+                    if (meetingSubject.trim() === "") return;
+                    if (!meetingManager) {
+                        // console.error("[Panel] 致命错误：全局 meetingManager 未找到！");
+                        return;
+                    }
+
+                    var startDateTime = new Date(startTime)
+
+                    // [关键修复] 确保 selectedHosts 是数组
+                    var hostsArray = []
+                    if (root.selectedHosts && root.selectedHosts.length > 0) {
+                        // 如果 selectedHosts 已经是数组，直接使用；否则创建新数组
+                        if (Array.isArray(root.selectedHosts)) {
+                            hostsArray = root.selectedHosts
+                        } else {
+                            hostsArray = [root.selectedHosts]
+                        }
+                        meetingManager.setMeetingHosts(hostsArray)
+                    } else {
+                        meetingManager.setMeetingHosts([])
+                    }
+
+                    // 创建计划会议
+                    meetingManager.createScheduledMeeting(
+                        meetingSubject,
+                        meetingDescription,
+                        startDateTime,
+                        durationMinutes,
+                        expectedParticipants
+                    );
+                    var success = meetingManager.saveMeetingsToJson();
+                    root.close();
                 }
             }
         }
+    }
+
+    Connections {
+        target: hostManager
+        enabled: typeof hostManager !== 'undefined' && hostManager !== null
+
+        function onHostInfoChanged(address) {
+            refreshAvailableHosts()
+        }
+
+        function onSelectedHostChanged(oldAddress, newAddress) {
+            refreshAvailableHosts()
+        }
+
+        function onDetectedHostsResponseReceived(address) {
+            refreshAvailableHosts()
+        }
+    }
+
+    Component.onCompleted: {
+        refreshAvailableHosts()
+        console.log("[Panel] 创建会议面板初始化完成")
     }
 }

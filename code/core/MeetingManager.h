@@ -9,6 +9,7 @@
 #include <QList>
 #include <map>
 #include <vector>
+#include <QTimer> // [新增] 引入定时器
 
 
 // 前向声明
@@ -145,6 +146,7 @@ struct MeetingRecord {
     MeetingStatus status = MeetingStatus::NotStarted;
 
     int expectedParticipants = 0;     // 预期人数(参考用)
+    QList<uint8_t> hostAddresses;     // [新增] 关联的主机地址列表
 
     // === 当前活跃事件 (同一时刻各自唯一) ===
     CheckInEvent currentCheckIn;      // 当前正在进行的签到
@@ -160,6 +162,10 @@ struct MeetingRecord {
         description.clear();
         status = MeetingStatus::NotStarted;
         expectedParticipants = 0;
+        hostAddresses.clear();
+        startTime = QDateTime();
+        endTime = QDateTime();
+        durationSecs = 0;
 
         currentCheckIn.reset();
         currentVoting.reset();
@@ -172,8 +178,19 @@ struct MeetingRecord {
         QVariantMap map;
         map["mid"] = mid;
         map["subject"] = subject;
+        map["description"] = description;
         map["status"] = static_cast<int>(status);
         map["startTime"] = startTime;
+        map["endTime"] = endTime;
+        map["durationSecs"] = durationSecs;
+        map["expectedParticipants"] = expectedParticipants;
+        
+        // [新增] 转换主机地址列表为 QML 可用的格式
+        QVariantList hosts;
+        for (uint8_t addr : hostAddresses) {
+            hosts.append(static_cast<int>(addr));
+        }
+        map["hostAddresses"] = hosts;
 
         // 暴露当前活跃状态
         map["currentCheckIn"] = currentCheckIn.toVariantMap();
@@ -196,6 +213,10 @@ class MeetingManager : public QObject
     // ==================== QML 属性暴露 ====================
     Q_PROPERTY(QVariantMap currentMeeting READ getCurrentMeetingData NOTIFY signal_meetingUpdated)
     Q_PROPERTY(QList<uint8_t> meetingHosts READ getMeetingHosts WRITE setMeetingHosts NOTIFY signal_meetingHostsChanged)
+    
+    // [新增] 暴露会议列表属性，当 signal_meetingUpdated 触发时，QML 会自动刷新
+    Q_PROPERTY(QVariantList scheduledMeetings READ getScheduledMeetings NOTIFY signal_meetingUpdated)
+    Q_PROPERTY(QVariantList historicalMeetings READ getHistoricalMeetings NOTIFY signal_meetingUpdated)
 
 public:
     explicit MeetingManager(QObject* parent = nullptr);
@@ -215,9 +236,14 @@ public:
     Q_INVOKABLE void createScheduledMeeting(const QString& subject,
                                             const QString& description,
                                             QDateTime startTime,
-                                            int durationMinutes);
+                                            int durationMinutes,
+                                            int expectedParticipants = 0);
+
     Q_INVOKABLE void startCurrentMeeting();
     Q_INVOKABLE void endCurrentMeeting();
+
+    Q_INVOKABLE void setExpectedParticipants(int count);
+    Q_INVOKABLE int getExpectedParticipants() const { return m_currentMeeting.expectedParticipants; }
 
     // ==================== 签到管理功能 ====================
     Q_INVOKABLE void createCheckInEvent(int durationMinutes);
@@ -227,6 +253,35 @@ public:
     Q_INVOKABLE void createReferendumVoting(int durationMinutes);
     Q_INVOKABLE void createCustomVoting(int durationMinutes, const QVariantList& options);
     Q_INVOKABLE void resetVotingEvent(int durationMinutes);
+
+    // ==================== 数据持久化与查询接口 [新增] ====================
+    
+    /**
+     * @brief 从 JSON 文件加载所有会议数据到内存缓存
+     * @param filePath 文件路径（可选，默认根据编译模式自动选择）
+     */
+    Q_INVOKABLE bool loadMeetingsFromJson(const QString& filePath = "");
+
+    /**
+     * @brief 将内存缓存同步保存到 JSON 文件 (原子写入)
+     * @param filePath 文件路径（可选，默认根据编译模式自动选择）
+     */
+    Q_INVOKABLE bool saveMeetingsToJson(const QString& filePath = "");
+
+    /**
+     * @brief 获取预定会议列表 (供 QML ListView 使用)
+     */
+    Q_INVOKABLE QVariantList getScheduledMeetings() const;
+
+    /**
+     * @brief 获取历史会议列表 (供 QML ListView 使用)
+     */
+    Q_INVOKABLE QVariantList getHistoricalMeetings() const;
+
+    /**
+     * @brief 根据 ID 启动一个预定会议，并将其设为当前活跃会议
+     */
+    Q_INVOKABLE bool startScheduledMeeting(const QString& mid);
 
     // ==================== 数据查询接口 ====================
     QVariantMap getCurrentMeetingData() const;
@@ -263,11 +318,20 @@ private:
     quint16 generateEventId();
     QString generateMeetingId();
 
+    // ==================== JSON 序列化辅助 [新增] ====================
+    static MeetingRecord jsonToRecord(const QJsonObject& obj);
+    static QJsonObject recordToJson(const MeetingRecord& record);
+    static QString statusToString(MeetingStatus status);
+    static MeetingStatus stringToStatus(const QString& str);
+
 private:
     HostManager* m_hostManager = nullptr;
     MeetingRecord m_currentMeeting;       // 核心状态：聚合的当前会议记录
     QList<uint8_t> m_meetingHosts;        // 关联的主机地址列表
     quint16 m_globalEventId = 1;          // 全局事件ID计数器
+    
+    QList<MeetingRecord> m_allMeetingsCache; // [新增] 全量会议数据缓存
+    QTimer m_saveTimer;                   // [新增] 防抖保存定时器
 };
 
 #endif // MEETINGMANAGER_H

@@ -12,28 +12,19 @@
 HostManager::HostManager(ConnectionFactory* factory, QObject *parent)
     : QObject(parent)
     , m_factory(factory)
-    , m_activeHostAddress(0)    // 默认活动主机
     , m_timeoutMs(3000)      // 使用默认值初始化
     , m_maxRetries(3)    // 使用默认值初始化
-    , m_activeHostMap(new QQmlPropertyMap(this)) // 初始化QQmlPropertyMap
-
+    , m_selectedHostAddress(0) // [新增] 初始化选中地址为 0
+    , m_selectedHostMap(new QQmlPropertyMap(this)) // [新增] 初始化映射表
 {
     LOG_INFO("HostManager 初始化完成");
 
-    // 初始化activeHost的所有属性
-    m_activeHostMap->insert("address", 0);
-    m_activeHostMap->insert("addressHex", "");
-    m_activeHostMap->insert("serialNumber", "");
-    m_activeHostMap->insert("aliasName", "");
-    m_activeHostMap->insert("status", static_cast<int>(HostStatus::None));
-    m_activeHostMap->insert("statusText", tr("无活动主机"));
-    m_activeHostMap->insert("isConnected", false);
-    m_activeHostMap->insert("isReady", false);
-    m_activeHostMap->insert("isActive", false);
-    m_activeHostMap->insert("lastSeenTime", "");
+    // 初始化 selectedHostMap 的默认值
+    m_selectedHostMap->insert("address", "N/A");
+    m_selectedHostMap->insert("isActive", false);
 
     // 标记为QML上下文属性（可选）
-    QQmlEngine::setObjectOwnership(m_activeHostMap, QQmlEngine::CppOwnership);
+    QQmlEngine::setObjectOwnership(m_selectedHostMap, QQmlEngine::CppOwnership);
 
     if (!m_factory) {
         LOG_WARNING("ConnectionFactory 实例为空");
@@ -348,8 +339,7 @@ void HostManager::detectHosts(uint8_t maxAddress)
     LOG_INFO(QString("已发送全部[%1]个主机探测指令，等待主机响应...").arg(maxAddress));
 }
 
-
-// 1. 创建主机实例（如若地址已被探测到，为指定地址创建主机实例；HostStatus::Ready）
+// 1.1 创建主机实例（如若地址已被探测到，为指定地址创建主机实例；HostStatus::Ready）
 bool HostManager::createHost(uint8_t hostAddress)
 {
     HostInfo* info = getHostInfoPtr(hostAddress);
@@ -387,110 +377,25 @@ bool HostManager::createHost(uint8_t hostAddress)
     return true;
 }
 
-// 2. 设置活动主机（如若地址主机实例已经创建，设置为当前活动主机；如未创建，则创建实例;HostStatus::Active）
-bool HostManager::activateHost(uint8_t hostAddress)
+// 1.2 创建单主机控制器实例
+QObject* HostManager::createControllerByType(uint8_t hostAddress, DeviceTypeEnum type)
 {
-    HostInfo* info = getHostInfoPtr(hostAddress);
+    switch (type) {
+    case DeviceType::xdc236:
+        LOG_INFO(QString("创建XDC236控制器 - 地址: %1").arg(formatAddressHex(hostAddress)));
+        return new XdcController(hostAddress, this);
 
-    // 1). hostAddress地址不存在于m_HostInfoMap, 不能设置为活动主机
-    if (!info || info->status == HostStatus::None) {
-        LOG_WARNING(QString("尝试设置未探测到的主机地址为活动主机 - 地址: %1").arg(formatAddressHex(hostAddress)));
-        return false;
+    case DeviceType::DS240:
+        LOG_INFO(QString("创建DS240控制器 - 地址: %1").arg(formatAddressHex(hostAddress)));
+        return new AfhController(hostAddress, this);
+
+    default:
+        LOG_WARNING(QString("未知设备 - 地址: %1，使用默认XDC236控制器 - 地址: %2").arg(static_cast<int>(type)).arg(formatAddressHex(hostAddress)));
+        return new XdcController(hostAddress, this);
     }
-
-    // 2). 没有实例，调用createHost()创建实例再设置为活动主机,状态为"就绪"
-    if (!m_controllers.contains(hostAddress)) {
-        LOG_INFO(QString("主机实例未创建，自动创建 - 地址: %1").arg(formatAddressHex(hostAddress)));
-
-        if(!createHost(hostAddress)) {
-            LOG_ERROR(QString("自动创建主机控制器失败 - 地址: %1").arg(formatAddressHex(hostAddress)));
-            return false;
-        }
-        info = getHostInfoPtr(hostAddress);
-        if (!info || !m_controllers.contains(hostAddress)) {
-            LOG_ERROR(QString("自动创建主机控制器后验证失败 - 地址: %1").arg(formatAddressHex(hostAddress)));
-            return false;
-        }
-    }
-
-    // 3). 已有实例，如果状态不是Ready或Active，那么可能是Busy或Error，就不能设置成活动主机
-    if (info->status == HostStatus::Busy || info->status == HostStatus::Error) {
-        LOG_WARNING(QString("主机处于 %1 状态，无法设置为活动主机 - 地址: %2").arg(formatAddressHex(hostAddress), info->statusText()));
-        return false;
-    }
-    if (info->status != HostStatus::Ready && info->status != HostStatus::Active) {
-        LOG_WARNING(QString("主机状态异常: %1 - 地址: %2").arg(formatAddressHex(hostAddress),info->statusText()));
-        return false;
-    }
-
-    // 4). 已有实例, 如果已经是活动主机，确保状态正确后直接返回
-    uint8_t oldActiveAddress = m_activeHostAddress;
-    if (oldActiveAddress == hostAddress) {
-        if (info->status != HostStatus::Active) {
-            info->status = HostStatus::Active;
-            emit hostInfoChanged(hostAddress);
-        }
-        LOG_INFO(QString("主机已是活动主机 - 地址: %1").arg(formatAddressHex(hostAddress)));
-        return true;
-    }
-
-    // 5). 清除其他主机的活动状态
-    for (auto& pair : m_hostInfoMap) {
-        if (pair.status == HostStatus::Active) {
-            pair.status = HostStatus::Ready;
-            emit hostInfoChanged(pair.address);
-            LOG_INFO(QString("清除主机活动状态 - 地址: %1").arg(formatAddressHex(pair.address)));
-        }
-    }
-
-    // 6). 如果执行了5的清除状态，设置新的活动主机
-    m_activeHostAddress = hostAddress;
-    info->status = HostStatus::Active;
-    emit hostInfoChanged(hostAddress);
-
-    updateActiveHostMap();
-    emit activeHostChanged(oldActiveAddress, hostAddress);
-    LOG_INFO(QString("活动主机切换 - 旧: %1, 新: %2").arg(formatAddressHex(oldActiveAddress),formatAddressHex(hostAddress)));
-
-    return true;
 }
 
-// 3. 切换主机（如若地址主机实例已经创建，切换地址主机实例为当前活动主机；如果主机实例未创建则先创建实例，再设置为活动主机;HostStatus::Active）
-bool HostManager::switchHost(uint8_t hostAddress)
-{
-    // 直接调用设置活动主机函数
-    return activateHost(hostAddress);
-}
-
-// 4. 停用主机（如若地址主机是当前活动主机，则设置为非活动主机，主机状态设置为Ready；如若不是，则不改变,主机状态不变)
-bool HostManager::stopHost(uint8_t hostAddress)
-{
-    HostInfo* info = getHostInfoPtr(hostAddress);
-    // 如果不存指定地址的主机控制器实例
-    if(!info || !m_controllers.contains(hostAddress)) {
-        LOG_WARNING(QString("主机不存在控制器，无法停用 - 地址: %1").arg(formatAddressHex(hostAddress)));
-        return false;
-    }
-
-    // 如果停用当前活动主机，保留主机控制器实例，状态设置为Ready，当前活动主机地址设置为0,发射当前活动主机变动信号
-    if(m_activeHostAddress == hostAddress) {
-        uint8_t oldAddress = m_activeHostAddress;
-        m_activeHostAddress = 0;
-
-        info->status = HostStatus::Ready;  // Active -> Ready
-        emit hostInfoChanged(hostAddress);
-
-        updateActiveHostMap();
-        emit activeHostChanged(oldAddress, 0);  // 发射活动主机改变信号（变为无活动主机）
-
-        LOG_INFO(QString("活动主机已停用 - 地址: %1").arg(formatAddressHex(hostAddress)));
-    } else {
-        LOG_INFO(QString("主机不是活动主机，无需停用 - 地址: %1").arg(formatAddressHex(hostAddress)));
-    }
-    return true;
-}
-
-// 5. 移除主机（如若指定地址主机实例存在且为活动主机，则停用再删除实例；如若实例存在但非活动，删除实例;HostStatus::None)
+// 2. 移除主机实例（如若指定地址主机实例存在且为活动主机，则停用再删除实例；如若实例存在但非活动，删除实例;HostStatus::None)
 bool HostManager::removeHost(uint8_t hostAddress)
 {
     auto it = m_hostInfoMap.find(hostAddress);
@@ -500,13 +405,13 @@ bool HostManager::removeHost(uint8_t hostAddress)
     }
 
     // 如果正在删除的是活动主机，先取消活动状态
-    if (m_activeHostAddress == hostAddress) {
-        uint8_t oldAddress = m_activeHostAddress;
-        m_activeHostAddress = 0;
-        updateActiveHostMap();
-        emit activeHostChanged(oldAddress, 0);
+    if (m_selectedHostAddress  == hostAddress) {
+        uint8_t oldAddress = m_selectedHostAddress ;
+        m_selectedHostAddress  = 0;
+        updateSelectedHostMap();
+        emit selectedHostChanged(oldAddress, 0);
 
-        LOG_INFO(QString("移除活动主机 - 地址: %1").arg(formatAddressHex(hostAddress)));
+        LOG_INFO(QString("移除当前选中主机 - 地址: %1").arg(formatAddressHex(hostAddress)));
     }
 
     // 清除控制器（智能指针会自动释放）
@@ -523,7 +428,7 @@ bool HostManager::removeHost(uint8_t hostAddress)
     return true;
 }
 
-// 6. 移除所有主机（停止活动主机并释放所有控制器实例）
+// 3. 移除所有主机实例（停止活动主机并释放所有控制器实例）
 void HostManager::removeAllHosts()
 {
     LOG_INFO("开始移除所有主机控制器...");
@@ -540,9 +445,12 @@ void HostManager::removeAllHosts()
     }
     LOG_INFO(QString("准备移除[%1个]主机控制器").arg(addressesToRemove.size()));
 
-    // 👇 第 2 步：先停用活动主机（如果存在）
-    if (m_activeHostAddress != 0) {
-        stopHost(m_activeHostAddress);
+    // 👇 第 2 步：直接通过重置变量取消选中主机实例
+    if (m_selectedHostAddress != 0) {
+        uint8_t oldAddr = m_selectedHostAddress;
+        m_selectedHostAddress = 0;
+        updateSelectedHostMap();
+        emit selectedHostChanged(oldAddr, 0);
     }
 
     // 👇 第 3 步：逐个移除所有控制器（复用 removeHost 逻辑）
@@ -555,8 +463,35 @@ void HostManager::removeAllHosts()
     LOG_INFO(QString("移除完成，共删除[%1个]控制器实例").arg(removedCount));
 }
 
-// 7. 获取当前主机（获取地址获取当前活动主机的地址，如若不存在返回 0x00）
-// 获取所有连接的Host Address
+// 4. 选择主机（如若地址主机已经实例化，选择该实例；如果没有实例化则创建实例，再选择）
+bool HostManager::selectHost(uint8_t hostAddress) {
+    // [修复] 检查主机是否存在（是否被探测到）
+    if (!getHostInfoPtr(hostAddress)) {
+        LOG_WARNING(QString("选择失败: 主机 %1 不存在").arg(formatAddressHex(hostAddress)));
+        return false;
+    }
+
+    // [逻辑调整] 如果还没创建实例，是否自动创建？
+    // 按照你的流程：应该由右键 createHost 触发。
+    // 但如果用户直接左键点了，为了体验好，这里还是建议自动创建，或者至少返回 true 并记录日志
+    if (!m_controllers.contains(hostAddress)) {
+        LOG_INFO(QString("左键选中未就绪主机，自动执行 createHost - 地址: %1").arg(formatAddressHex(hostAddress)));
+        if (!createHost(hostAddress)) return false;
+    }
+
+    uint8_t oldAddr = m_selectedHostAddress;
+    if (oldAddr == hostAddress) return true; 
+
+    m_selectedHostAddress = hostAddress;
+    updateSelectedHostMap();
+    emit selectedHostChanged(oldAddr, hostAddress);
+
+    LOG_INFO(QString("已选中主机: %1").arg(formatAddressHex(hostAddress)));
+    return true;
+}
+
+// 5. 多主机管理（主机集合信息，返回集合信息，如若不存在返回 0x00）
+// 5.1 获取所有连接的Host Address
 QVariantList HostManager::getConnectedHostList() const
 {
     QVariantList list;
@@ -574,18 +509,18 @@ QVariantList HostManager::getConnectedHostList() const
     return list;
 }
 
-// 获取当前唯一的Active HostInfo
-QString HostManager::getActiveHostAddress() const
-{
-    if (m_activeHostAddress == 0) {
-        return QString();  // 无活动主机返回空字符串
+// 5.2 获取已就绪的主机列表
+QVariantList HostManager::getReadyHostList() const {
+    QVariantList list;
+    for (const auto& info : m_hostInfoMap) {
+        if (info.status == HostStatus::Ready) {
+            list.append(info.toVariantMap());
+        }
     }
-
-    // 格式化为带0x前缀的十六进制，如：0x01, 0x0A
-    return QString("0x%1").arg(m_activeHostAddress, 2, 16, QChar('0'));
+    return list;
 }
 
-// 通过地址获取指定的HostInfo数据结构
+// 5.3 通过地址获取指定的HostInfo数据结构
 QVariantMap HostManager::getAllHostMap(uint8_t hostAddress) const
 {
     const HostInfo* info = getHostInfoPtr(hostAddress);
@@ -602,8 +537,8 @@ QVariantMap HostManager::getAllHostMap(uint8_t hostAddress) const
     return defaultInfo.toVariantMap();
 }
 
-// 主机生命周期管理辅助函数
-// 获取 HostInfo指针
+// 6. 单主机管理（通过地址或者特定变量管理单主机）
+// 6.1.1 获取 HostInfo指针
 HostInfo* HostManager::getHostInfoPtr(uint8_t address)
 {
     auto it = m_hostInfoMap.find(address);
@@ -613,7 +548,7 @@ HostInfo* HostManager::getHostInfoPtr(uint8_t address)
     return nullptr;
 }
 
-// 只读版本（const版本）
+// 6.1.2 只读版本（const版本）
 const HostInfo* HostManager::getHostInfoPtr(uint8_t address) const
 {
     auto it = m_hostInfoMap.find(address);
@@ -623,7 +558,7 @@ const HostInfo* HostManager::getHostInfoPtr(uint8_t address) const
     return nullptr;
 }
 
-// 更新主机信息（UPSERT 模式：已存在则更新，不存在则创建）
+// 6.2.1 更新单主机信息（UPSERT 模式：已存在则更新，不存在则创建）
 void HostManager::upsertHostInfo(uint8_t address, HostStatus status, DeviceTypeEnum deviceType)
 {
     // 查找是否已存在该地址的主机信息
@@ -673,7 +608,7 @@ void HostManager::upsertHostInfo(uint8_t address, HostStatus status, DeviceTypeE
     }
 }
 
-// 更新主机最后通信时间
+// 6.2.2 更新单主机最后通信时间
 void HostManager::updateHostLastSeen(uint8_t address)
 {
     auto it = m_hostInfoMap.find(address);
@@ -684,31 +619,43 @@ void HostManager::updateHostLastSeen(uint8_t address)
     }
 }
 
-// 新增辅助函数：根据类型创建控制器
-QObject* HostManager::createControllerByType(uint8_t hostAddress, DeviceTypeEnum type)
-{
-    switch (type) {
-    case DeviceType::xdc236:
-        LOG_INFO(QString("创建XDC236控制器 - 地址: %1").arg(formatAddressHex(hostAddress)));
-        return new XdcController(hostAddress, this);
+// 6.2.3 更新选中主机映射表 (供 QML 绑定)
+void HostManager::updateSelectedHostMap() {
+    if (!m_selectedHostMap) return;
 
-    case DeviceType::DS240:
-        LOG_INFO(QString("创建DS240控制器 - 地址: %1").arg(formatAddressHex(hostAddress)));
-        return new AfhController(hostAddress, this);
-
-    default:
-        LOG_WARNING(QString("未知设备 - 地址: %1，使用默认XDC236控制器 - 地址: %2").arg(static_cast<int>(type)).arg(formatAddressHex(hostAddress)));
-        return new XdcController(hostAddress, this);
+    if (m_selectedHostAddress != 0) {
+        const HostInfo* info = getHostInfoPtr(m_selectedHostAddress);
+        if (info) {
+            // [情况 A] 有真实数据：全量更新所有字段
+            m_selectedHostMap->insert("address", info->addressHex());
+            m_selectedHostMap->insert("aliasName", info->aliasName);
+            m_selectedHostMap->insert("serialNumber", info->serialNumber);
+            m_selectedHostMap->insert("deviceTypeName", info->deviceTypeName());
+            m_selectedHostMap->insert("status", static_cast<int>(info->status));
+            m_selectedHostMap->insert("statusText", info->statusText());
+            m_selectedHostMap->insert("isConnected", info->isConnected());
+            m_selectedHostMap->insert("isReady", info->isReady());
+            m_selectedHostMap->insert("isActive", true); // 标记为“已选中”
+            m_selectedHostMap->insert("lastSeenTime", info->lastSeenTime());
+            return;
+        }
     }
+
+    // [情况 B] 无选中主机：提供一套完整的“模拟/默认”数据
+    // 注意：这里的 Key 必须和上面完全一致，确保 QML 绑定的属性永远存在
+    m_selectedHostMap->insert("address", "--");
+    m_selectedHostMap->insert("aliasName", tr("未选择主机"));
+    m_selectedHostMap->insert("serialNumber", "");
+    m_selectedHostMap->insert("deviceTypeName", "---");
+    m_selectedHostMap->insert("status", 0); // 对应 HostStatus::None
+    m_selectedHostMap->insert("statusText", tr("等待选择"));
+    m_selectedHostMap->insert("isConnected", false);
+    m_selectedHostMap->insert("isReady", false);
+    m_selectedHostMap->insert("isActive", false); // 关键：UI 据此禁用按钮,标记为“已选中”
+    m_selectedHostMap->insert("lastSeenTime", "");
 }
 
-// 新增：获取控制器实例
-QObject* HostManager::getController(uint8_t address) const
-{
-    return m_controllers.value(address, nullptr);
-}
-
-// 新增：移除控制器（不删除主机信息）
+// 6.3 移除单主机控制器实例（不删除主机信息）
 void HostManager::removeController(uint8_t address)
 {
     if (m_controllers.contains(address)) {
@@ -720,44 +667,18 @@ void HostManager::removeController(uint8_t address)
     }
 }
 
-// ==================== 更新活动主机Map ====================
-void HostManager::updateActiveHostMap()
+// 6.4 获取单主机控制器实例
+QObject* HostManager::getController(uint8_t address) const
 {
-    const HostInfo* info = getHostInfoPtr(m_activeHostAddress);
-
-    if (info) {
-        // 有活动主机，更新所有属性
-        m_activeHostMap->insert("address", info->address);
-        m_activeHostMap->insert("addressHex", info->addressHex());
-        m_activeHostMap->insert("serialNumber", info->serialNumber);
-        m_activeHostMap->insert("aliasName", info->aliasName);
-        m_activeHostMap->insert("status", static_cast<int>(info->status));
-        m_activeHostMap->insert("statusText", info->statusText());
-        m_activeHostMap->insert("isConnected", info->isConnected());
-        m_activeHostMap->insert("isReady", info->isReady());
-        m_activeHostMap->insert("isActive", info->isActive());
-        m_activeHostMap->insert("lastSeenTime", info->lastSeenTime());
-
-        LOG_INFO(QString("更新活动主机Map - 地址: %1, 名称: %2, 状态: %3")
-                    .arg(info->addressHex(), info->aliasName, info->statusText()));
-
-    } else {
-        // 无活动主机，设置为默认值
-        m_activeHostMap->insert("address", 0);
-        m_activeHostMap->insert("addressHex", "");
-        m_activeHostMap->insert("serialNumber", "");
-        m_activeHostMap->insert("aliasName", "");
-        m_activeHostMap->insert("status", static_cast<int>(HostStatus::None));
-        m_activeHostMap->insert("statusText", tr("无活动主机"));
-        m_activeHostMap->insert("isConnected", false);
-        m_activeHostMap->insert("isReady", false);
-        m_activeHostMap->insert("isActive", false);
-        m_activeHostMap->insert("lastSeenTime", "");
-
-        LOG_INFO("清除活动主机 Map");
-    }
+    return m_controllers.value(address, nullptr);
 }
 
+// =============== 其它模块特别需求 ===============
+// 获取可用主机列表（供会议模块使用）
+QVariantList HostManager::getAvailableHostsForMeeting() const {
+    // 目前逻辑等同于 Ready 列表
+    return getReadyHostList();
+}
 
 /* 关键流程说明：
 1. detectHosts() 调用 sendProtocolFrame(address, 0x80, 0x01, 0x0201) 发送探测指令

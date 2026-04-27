@@ -3,6 +3,14 @@
 #include "HostManager.h"
 #include <QDebug>
 #include <QThread>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QDir>
+#include <QFileInfo>
+#include <QStandardPaths> // [新增] 用于获取标准路径
+#include <QCoreApplication> // [新增] 用于获取应用信息
 
 // ==================== 构造与析构 ====================
 MeetingManager::MeetingManager(QObject* parent)
@@ -10,6 +18,13 @@ MeetingManager::MeetingManager(QObject* parent)
     , m_hostManager(nullptr)
     , m_globalEventId(1)
 {
+    // 配置防抖保存：停止操作 2 秒后自动执行一次磁盘写入
+    m_saveTimer.setSingleShot(true);
+    m_saveTimer.setInterval(2000);
+    connect(&m_saveTimer, &QTimer::timeout, this, [this]() {
+        saveMeetingsToJson();
+    });
+    qDebug() << "MeetingManager 构建成功";
 }
 
 MeetingManager::~MeetingManager()
@@ -54,12 +69,14 @@ void MeetingManager::createQuickMeeting(const QString& subject,
 
     qDebug() << "MeetingManager: 快速会议已创建 - ID:" << m_currentMeeting.mid;
     emit signal_meetingUpdated();
+    saveMeetingsToJson(); // 立即保存
 }
 
 void MeetingManager::createScheduledMeeting(const QString& subject,
                                             const QString& description,
                                             QDateTime startTime,
-                                            int durationMinutes)
+                                            int durationMinutes,
+                                            int expectedParticipants)
 {
     m_currentMeeting.reset();
     m_currentMeeting.mid = generateMeetingId();
@@ -67,10 +84,19 @@ void MeetingManager::createScheduledMeeting(const QString& subject,
     m_currentMeeting.description = description;
     m_currentMeeting.startTime = startTime;
     m_currentMeeting.durationSecs = durationMinutes * 60;
+    m_currentMeeting.expectedParticipants = expectedParticipants;
     m_currentMeeting.status = MeetingStatus::NotStarted;
 
-    qDebug() << "MeetingManager: 计划会议已创建 - ID:" << m_currentMeeting.mid;
+    // 计算结束时间
+    m_currentMeeting.endTime = startTime.addSecs(durationMinutes * 60);
+    m_currentMeeting.hostAddresses = m_meetingHosts;
+
+    qDebug() << "MeetingManager: 计划会议已创建 - ID:" << m_currentMeeting.mid
+             << ", 时长(分钟):" << durationMinutes
+             << ", 参会人数:" << m_currentMeeting.expectedParticipants
+             << ", 关联主机数量:" << m_currentMeeting.hostAddresses.size();
     emit signal_meetingUpdated();
+    saveMeetingsToJson();
 }
 
 void MeetingManager::startCurrentMeeting()
@@ -82,6 +108,7 @@ void MeetingManager::startCurrentMeeting()
     m_currentMeeting.status = MeetingStatus::InProgress;
     m_currentMeeting.startTime = QDateTime::currentDateTime();
     emit signal_meetingUpdated();
+    saveMeetingsToJson(); // 状态变更立即保存
 }
 
 void MeetingManager::endCurrentMeeting()
@@ -97,7 +124,18 @@ void MeetingManager::endCurrentMeeting()
 
     qDebug() << "MeetingManager: 会议已结束 - ID:" << m_currentMeeting.mid;
     emit signal_meetingUpdated();
+    saveMeetingsToJson(); // 结束时强制同步磁盘
 }
+
+void MeetingManager::setExpectedParticipants(int count)
+{
+    if (count > 0) {
+        m_currentMeeting.expectedParticipants = count;
+        emit signal_meetingUpdated();
+        m_saveTimer.start();
+    }
+}
+
 
 // ==================== 签到管理功能 ====================
 void MeetingManager::createCheckInEvent(int durationMinutes)
@@ -294,6 +332,7 @@ void MeetingManager::parseCheckInResponse(uint8_t hostAddr, const QByteArray& pa
         quint16 unitId = (static_cast<quint8>(payload[0]) << 8) | static_cast<quint8>(payload[1]);
         m_currentMeeting.currentCheckIn.results[unitId] = QDateTime::currentDateTime();
         emit signal_meetingUpdated();
+        m_saveTimer.start(); // 触发防抖保存
     }
 }
 
@@ -308,6 +347,7 @@ void MeetingManager::parseVotingResponse(uint8_t hostAddr, const QByteArray& pay
 
         m_currentMeeting.currentVoting.results[unitId] = std::make_pair(QDateTime::currentDateTime(), optionVal);
         emit signal_meetingUpdated();
+        m_saveTimer.start(); // 触发防抖保存
     }
 }
 
@@ -335,4 +375,230 @@ quint16 MeetingManager::generateEventId()
 QString MeetingManager::generateMeetingId()
 {
     return QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
+}
+
+// ==================== [新增] 持久化与查询接口实现 ====================
+
+bool MeetingManager::loadMeetingsFromJson(const QString& filePath) {
+    // [优化] 智能路径选择
+    QString actualPath = filePath;
+    if (actualPath.isEmpty()) {
+#ifdef QT_DEBUG
+        actualPath = "data/meeting_data.json";
+#else
+        QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        QDir().mkpath(dataDir);
+        actualPath = dataDir + "/meeting_data.json";
+#endif
+    }
+
+    QFile file(actualPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "无法打开会议数据文件:" << actualPath;
+        return false;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    file.close();
+
+    if (doc.isNull() || !doc.isObject()) return false;
+
+    QJsonObject root = doc.object();
+    m_allMeetingsCache.clear();
+
+    auto loadArray = [&](const QJsonArray& arr) {
+        for (const auto& val : arr) {
+            m_allMeetingsCache.append(jsonToRecord(val.toObject()));
+        }
+    };
+    
+    loadArray(root["scheduledMeetings"].toArray());
+    loadArray(root["historicalMeetings"].toArray());
+
+    emit signal_meetingUpdated();
+    return true;
+}
+
+bool MeetingManager::saveMeetingsToJson(const QString& filePath) {
+    QString actualPath = filePath;
+    if (actualPath.isEmpty()) {
+#ifdef QT_DEBUG
+        actualPath = "data/meeting_data.json";
+#else
+        QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        QDir().mkpath(dataDir);
+        actualPath = dataDir + "/meeting_data.json";
+#endif
+    }
+
+    // [新增] 确保父目录存在，否则写入会失败
+    QFileInfo fi(actualPath);
+    QDir dir(fi.absolutePath());
+    if (!dir.exists()) {
+        if (!dir.mkpath(".")) {
+            qWarning() << "[ERROR] 无法创建数据目录:" << fi.absolutePath();
+            return false;
+        }
+    }
+
+    QJsonObject root;
+    QJsonArray scheduledArr, historicalArr;
+
+    // 1. 同步当前会议到缓存
+    if (!m_currentMeeting.mid.isEmpty()) {
+        bool found = false;
+        for (int i = 0; i < m_allMeetingsCache.size(); ++i) {
+            if (m_allMeetingsCache[i].mid == m_currentMeeting.mid) {
+                m_allMeetingsCache[i] = m_currentMeeting;
+                found = true;
+                break;
+            }
+        }
+        if (!found) m_allMeetingsCache.append(m_currentMeeting);
+    }
+
+    // 2. 分类
+    for (const auto& rec : m_allMeetingsCache) {
+        QJsonObject obj = recordToJson(rec);
+        if (rec.status == MeetingStatus::Ended) {
+            historicalArr.append(obj);
+        } else {
+            scheduledArr.append(obj);
+        }
+    }
+
+    root["scheduledMeetings"] = scheduledArr;
+    root["historicalMeetings"] = historicalArr;
+
+    // 3. 原子写入
+    QString tempPath = actualPath + ".tmp";
+    QFile file(tempPath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "[ERROR] 无法打开临时文件进行写入:" << tempPath;
+        qWarning() << "[ERROR] 系统错误信息:" << file.errorString();
+        return false;
+    }
+
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    file.close();
+
+    if (QFile::exists(actualPath)) {
+        QFile::remove(actualPath);
+    }
+    
+    if (!QFile::rename(tempPath, actualPath)) {
+        qWarning() << "[ERROR] 重命名文件失败，从" << tempPath << "到" << actualPath;
+        return false;
+    }
+
+    qDebug() << "[SUCCESS] 会议数据已成功保存到:" << actualPath;
+    return true;
+}
+
+QVariantList MeetingManager::getScheduledMeetings() const {
+    QVariantList list;
+    for (const auto& rec : m_allMeetingsCache) {
+        if (rec.status != MeetingStatus::Ended) {
+            list.append(rec.toVariantMap());
+        }
+    }
+    return list;
+}
+
+QVariantList MeetingManager::getHistoricalMeetings() const {
+    QVariantList list;
+    for (const auto& rec : m_allMeetingsCache) {
+        if (rec.status == MeetingStatus::Ended) {
+            list.append(rec.toVariantMap());
+        }
+    }
+    return list;
+}
+
+bool MeetingManager::startScheduledMeeting(const QString& mid) {
+    for (const auto& rec : m_allMeetingsCache) {
+        if (rec.mid == mid && rec.status != MeetingStatus::Ended) {
+            m_currentMeeting = rec;
+            m_currentMeeting.status = MeetingStatus::InProgress;
+            m_currentMeeting.startTime = QDateTime::currentDateTime();
+            
+            // [重要] 同步更新全局的主机列表，以便 sendToMultipleHosts 能正常工作
+            setMeetingHosts(m_currentMeeting.hostAddresses);
+
+            // 更新缓存并立即保存
+            for (auto& cached : m_allMeetingsCache) {
+                if (cached.mid == mid) cached =
+ m_currentMeeting;
+            }
+            saveMeetingsToJson(); 
+            emit signal_meetingUpdated();
+            return true;
+        }
+    }
+    return false;
+}
+
+// ==================== [新增] JSON 序列化辅助实现 ====================
+
+QString MeetingManager::statusToString(MeetingStatus status) {
+    switch (status) {
+        case MeetingStatus::NotStarted: return "NotStarted";
+        case MeetingStatus::InProgress: return "InProgress";
+        case MeetingStatus::Ended: return "Ended";
+        default: return "Unknown";
+    }
+}
+
+MeetingStatus MeetingManager::stringToStatus(const QString& str) {
+    if (str == "NotStarted") return MeetingStatus::NotStarted;
+    if (str == "InProgress") return MeetingStatus::InProgress;
+    if (str == "Ended") return MeetingStatus::Ended;
+    return MeetingStatus::NotStarted;
+}
+
+MeetingRecord MeetingManager::jsonToRecord(const QJsonObject& obj) {
+    MeetingRecord record;
+    record.mid = obj["mid"].toString();
+    record.subject = obj["subject"].toString();
+    record.description = obj["description"].toString();
+    record.startTime = QDateTime::fromString(obj["startTime"].toString(), Qt::ISODate);
+    record.endTime = QDateTime::fromString(obj["endTime"].toString(), Qt::ISODate);
+    record.durationSecs = obj["durationSecs"].toInt();
+    record.expectedParticipants = obj["expectedParticipants"].toInt();
+    record.status = stringToStatus(obj["status"].toString());
+
+    // [修复] 解析主机地址
+    QJsonArray hosts = obj["hostAddresses"].toArray();
+    for (const auto& h : hosts) {
+        record.hostAddresses.append(static_cast<uint8_t>(h.toInt()));
+    }
+
+    // 此处可以继续补充 checkInHistory 和 votingHistory 的解析
+    // ...
+    
+    return record;
+}
+
+QJsonObject MeetingManager::recordToJson(const MeetingRecord& record) {
+    QJsonObject obj;
+    obj["mid"] = record.mid;
+    obj["subject"] = record.subject;
+    obj["description"] = record.description;
+    obj["startTime"] = record.startTime.toString(Qt::ISODate);
+    obj["endTime"] = record.endTime.toString(Qt::ISODate);
+    obj["durationSecs"] = record.durationSecs;
+    obj["expectedParticipants"] = record.expectedParticipants;
+    obj["status"] = statusToString(record.status);
+
+    // [修复] 序列化主机地址
+    QJsonArray hosts;
+    for (uint8_t addr : record.hostAddresses) {
+        hosts.append(static_cast<int>(addr));
+    }
+    obj["hostAddresses"] = hosts;
+
+    // 此处可以继续补充 checkInHistory 和 votingHistory 的序列化
+    // ...
+    
+    return obj;
 }

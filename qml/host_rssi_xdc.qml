@@ -12,6 +12,8 @@ ColumnLayout {
     spacing: 0
 
     property var controller: null
+    // [新增] 当前选中的主机地址
+    property int currentHostAddress: 0
 
     // 列宽配置 - 动态计算
     property var columnWidths: [39, 95, 75, 95, 75, 95, 75, 95, 75, 95, 75]
@@ -62,16 +64,22 @@ ColumnLayout {
         columnWidths = newWidths
     }
 
+    // [修复] 刷新控制器 - 使用 selectedHostAddressInt
     function refreshController() {
         if (typeof hostManager === 'undefined' || !hostManager) {
             controller = null;
+            currentHostAddress = 0;
             return;
         }
-        var addr = hostManager.activeHostAddress;
+        // 使用新的 selectedHostAddressInt 替代 activeHostAddress
+        var addr = hostManager.selectedHostAddressInt;
+        currentHostAddress = addr;
         if (addr > 0) {
             controller = hostManager.getController(addr);
+            console.log("RSSI页面: 获取控制器, 地址=0x" + addr.toString(16));
         } else {
             controller = null;
+            console.log("RSSI页面: 没有选中的主机");
         }
     }
 
@@ -171,15 +179,28 @@ ColumnLayout {
         }
     }
 
+    // [修复] 将旧的 onActiveHostAddressChanged 改为 onSelectedHostChanged
     Connections {
         target: typeof hostManager !== 'undefined' ? hostManager : null
-        function onActiveHostAddressChanged() {
+        enabled: typeof hostManager !== 'undefined'
+
+        // 使用新的信号名称 selectedHostChanged
+        function onSelectedHostChanged(oldAddress, newAddress) {
+            console.log("RSSI页面: 选中主机变更 0x" + oldAddress.toString(16) + " -> 0x" + newAddress.toString(16))
             refreshController()
             refreshTableData()
+        }
+
+        // 监听主机信息变化，当主机状态更新时刷新
+        function onHostInfoChanged(address) {
+            if (address === currentHostAddress || address === 0) {
+                refreshTableData()
+            }
         }
     }
 
     Component.onCompleted: {
+        console.log("RSSI页面初始化完成")
         refreshController()
         refreshTableData()
         calculateColumnWidths()
@@ -248,11 +269,14 @@ ColumnLayout {
                         Layout.preferredHeight: 30
                         Layout.preferredWidth: 100
                         borderWidth: 0.5
+                        enabled: controller !== null
                         onClicked: {
                             if (controller) {
                                 statusLabel.text = "状态: 正在启动测试..."
                                 progressBar.visible = true
                                 controller.startAudioTest()
+                            } else {
+                                statusLabel.text = "状态: 请先选中一个已就绪的主机"
                             }
                         }
                     }
@@ -263,6 +287,7 @@ ColumnLayout {
                         Layout.preferredHeight: 30
                         Layout.preferredWidth: 100
                         borderWidth: 0.5
+                        enabled: controller !== null
                         onClicked: {
                             if (controller) controller.stopAudioTest()
                         }
@@ -297,7 +322,7 @@ ColumnLayout {
 
                     Label {
                         id: statusLabel
-                        text: "状态: 等待测试"
+                        text: controller !== null ? "状态: 等待测试" : "状态: 请先选中一个主机"
                         color: Theme.text
                         font.pixelSize: 11
                         font.weight: 11
@@ -356,7 +381,7 @@ ColumnLayout {
 
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-                // 设置RSSI字体颜色，
+                // 设置RSSI字体颜色
                 function getRssiColor(val) {
                     if (val === "--" || val === undefined || val === 0) return Theme.textDim
                     var num = parseInt(val)
@@ -421,6 +446,8 @@ ColumnLayout {
                 Rectangle {
                     anchors.fill: parent
                     color: "transparent"
+                    border.color: Theme.borderLine
+                    border.width: 0.5
                     visible: dataListView.count === 0
                     z: 1
 
@@ -458,8 +485,8 @@ ColumnLayout {
                         StyledText { text: " 1. 获取监测信道数量"; leftPadding: 10 }
                         StyledText { text: " 2. 获取监测信道频率和RSSI"; leftPadding: 10 }
                         StyledText { text: " 3. 测试4个无线信道的RSSI"; leftPadding: 10 }
+                        StyledText { text: "•   请先在主机列表中选择一个已就绪的主机"; leftPadding: 10 }
                     }
-
                 }
             }
         }

@@ -1,3 +1,4 @@
+// qml/meeting_active.qml
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
@@ -10,7 +11,7 @@ ColumnLayout {
     Layout.preferredHeight: parent.height * 0.90
     spacing: 0
 
-    // 直接使用全局注入的 meetingManager，不定义局部 property 以免遮蔽
+    // 直接使用全局注入的 meetingManager
     property bool hasActiveMeeting: false
 
     Timer {
@@ -36,7 +37,6 @@ ColumnLayout {
         onTriggered: {
             if (meetingManager) {
                 var m = meetingManager.currentMeeting
-                // 如果 C++ 说在进行中，但 UI 还没显示，强制刷新
                 if (m && m.status === 1 && !hasActiveMeeting) {
                     console.log("[Auto-Sync] 检测到会议进行中，刷新 UI")
                     checkActiveMeeting()
@@ -45,7 +45,7 @@ ColumnLayout {
         }
     }
 
-    // 获取当前会议，返回bool值结果
+    // 获取当前会议
     function getCurrentMeeting() {
         return meetingManager ? (meetingManager.currentMeeting || {}) : {}
     }
@@ -124,7 +124,7 @@ ColumnLayout {
         return (getVotedCount() / total * 100).toFixed(1)
     }
 
-    // 获取会议关联主机（可以与其创建会议活动，不影响单独联机操控主机）
+    // 获取会议关联主机
     function getFormattedHosts() {
         if (!meetingManager || !meetingManager.meetingHosts) return "未关联"
         var hosts = meetingManager.meetingHosts
@@ -191,19 +191,18 @@ ColumnLayout {
             anchors.topMargin: 10
         }
     }
-    Item { Layout.preferredWidth: parent.width; Layout.preferredHeight: 10 }    // 占位行
+    Item { Layout.preferredWidth: parent.width; Layout.preferredHeight: 10 }
 
     Rectangle {
         Layout.fillWidth: true
         height: 1
         color: Theme.borderLine
     }
-    Item { Layout.preferredWidth: parent.width; Layout.preferredHeight: 40 }    // 占位行
-
+    Item { Layout.preferredWidth: parent.width; Layout.preferredHeight: 40 }
 
     // --- 无会议状态 ---
     ColumnLayout {
-        //visible: !hasActiveMeeting
+        visible: !hasActiveMeeting
         Layout.fillWidth: true
         Layout.fillHeight: true
         spacing: 20
@@ -222,7 +221,7 @@ ColumnLayout {
 
     // --- 有会议状态 ---
     ColumnLayout {
-        //visible: hasActiveMeeting
+        visible: hasActiveMeeting
         Layout.fillWidth: true
         spacing: 15
 
@@ -245,13 +244,17 @@ ColumnLayout {
                     Rectangle { width: 10; height: 10; radius: 5; color: Theme.success }
                     Text { text: "会议进行中"; color: Theme.success; font.bold: true }
                     Item { Layout.fillWidth: true }
-                    Button {
+                    CustomButton {
                         text: "结束会议"
                         Layout.preferredHeight: 26
                         Layout.preferredWidth: 100
-                        onClicked: if(meetingManager) meetingManager.endCurrentMeeting()
-                        background: Rectangle { color: parent.hovered ? Theme.error : Qt.darker(Theme.error, 1.3); radius: Theme.radiusS }
-                        contentItem: Text { text: parent.text; color: "white"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                        backgroundColor: Theme.error
+                        hoverColor: Qt.lighter(Theme.error, 1.2)
+                        pressedColor: Qt.darker(Theme.error, 1.2)
+                        textColor: "white"
+                        onClicked: {
+                            if(meetingManager) meetingManager.endCurrentMeeting()
+                        }
                     }
                 }
 
@@ -292,7 +295,7 @@ ColumnLayout {
                 implicitHeight: 36
                 Layout.fillWidth: true
 
-                backgroundColor:  Qt.darker(Theme.textMenu, 1.1)
+                backgroundColor: Qt.darker(Theme.textMenu, 1.1)
                 hoverColor: Theme.textMenu
                 pressedColor: Qt.darker(Theme.textMenu, 1.3)
 
@@ -304,7 +307,7 @@ ColumnLayout {
                 implicitHeight: 36
                 Layout.fillWidth: true
 
-                backgroundColor:  Qt.darker(Theme.textMenu, 1.1)
+                backgroundColor: Qt.darker(Theme.textMenu, 1.1)
                 hoverColor: Theme.textMenu
                 pressedColor: Qt.darker(Theme.textMenu, 1.3)
 
@@ -374,5 +377,4 @@ ColumnLayout {
             Layout.fillHeight: true
         }
     }
-
 }

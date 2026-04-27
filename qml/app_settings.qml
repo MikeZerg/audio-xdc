@@ -43,6 +43,10 @@ ColumnLayout {
             text: "设置XDC236主机单元地址范围"
             color: Theme.text
         }
+        Label {
+            text: "设置XDC236主机会议记录保存路径"
+            color: Theme.text
+        }
 
     }
 

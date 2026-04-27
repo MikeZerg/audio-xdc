@@ -1,4 +1,4 @@
-// MenuData.qml
+// // qml/CustomWidget/CustomTreeMenuData.qml
 import QtQuick 2.15
 
 QtObject {
@@ -29,11 +29,13 @@ QtObject {
             {id: "F2-52", name: "工作单元监测", level: 2, parentId: "F2-50", page:""}
         ],
         "F3": [
-            {id: "F3-10", name: "会议与活动", level: 1, page:"qml/meeting_console.qml"},
-            {id: "F3-11", name: "实时会议", level: 2, parentId: "F3-10", page:"qml/meeting_active.qml"},
-            {id: "F3-12", name: "签到记录", level: 2, parentId: "F3-10", page:"qml/meeting_checkin.qml"},
+            {id: "F3-10", name: "日程安排", level: 1, page:"qml/meeting_calendar.qml"},
+            {id: "F3-11", name: "会议与活动", level: 2, parentId: "F3-10", page:"qml/meeting_console.qml"},
+            {id: "F3-12", name: "实时会议", level: 2, parentId: "F3-10", page:"qml/meeting_active.qml"},
             {id: "F3-13", name: "投票记录", level: 2, parentId: "F3-10", page:"qml/meeting_voting.qml"},
-            {id: "F3-14", name: "会场设置", level: 2, parentId: "F3-10", page:"qml/meeting_calendar.qml"}
+            {id: "F3-14", name: "签到记录", level: 2, parentId: "F3-10", page:"qml/meeting_checkin.qml"},
+            {id: "F3-15", name: "投票记录", level: 2, parentId: "F3-10", page:"qml/meeting_voting.qml"}
+
         ],
         "F4": [
             {id: "F4-10", name: "日志与调试", level: 1, page:"qml/app_logs.qml"},
