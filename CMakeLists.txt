@@ -89,6 +89,8 @@ qt_add_qml_module(appaudio-xdc
         qml/CustomWidget/PanelCreateCheckin.qml
         qml/CustomWidget/PanelCreateVoting.qml
         qml/CustomWidget/PanelViewMeeting.qml
+        qml/CustomWidget/CustomMeetingRecord.qml
+
         qml/meeting_active.qml
         qml/meeting_checkin.qml
         qml/meeting_voting.qml

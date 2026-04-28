@@ -12,9 +12,9 @@ Popup {
     signal votingCreated(string subject, int durationMinutes, string voteType, var customOptions, bool anonymous, bool repeat)
 
     property string voteSubject: "会议投票"
-    property int durationMinutes: 10
-    property string voteType: "referendum"
-    property var customOptions: []
+    property int durationMinutes: 5
+    property string voteType: "referendum"  // "referendum" 或 "custom"
+    property var customOptions: []          // 自定义选项数组: [{label: "选项A", value: 2}, ...]
     property bool anonymousVote: true
     property bool repeatVote: false
 
@@ -57,30 +57,36 @@ Popup {
         customOptions = []
         anonymousVote = true
         repeatVote = false
+        customOptionsRepeater.model = customOptions
     }
 
+    // 获取投票选项颜色（与 MeetingManager 中的 VotingOption 对应）
     function getVotingColor(value) {
         if (value === 1) return Theme.votingColorPalette[0]   // 赞成
         if (value === 0) return Theme.votingColorPalette[1]   // 弃权
         if (value === -1) return Theme.votingColorPalette[2]  // 反对
 
+        // 自定义选项：值从2开始
         var index = (Math.abs(value) - 2) + 3
         index = index % Theme.votingColorPalette.length
         return Theme.votingColorPalette[index]
     }
 
+    // 添加自定义选项（值从2开始递增）
     function addCustomOption(optionText) {
-        var newValue = customOptions.length + 2
+        var newValue = customOptions.length + 2  // 值从2开始
         customOptions.push({
-            option: optionText,
+            label: optionText,
             value: newValue,
             color: getVotingColor(newValue)
         })
         customOptionsRepeater.model = customOptions
     }
 
+    // 移除自定义选项
     function removeCustomOption(index) {
         customOptions.splice(index, 1)
+        // 重新计算每个选项的值（保持从2开始连续）
         for (var i = 0; i < customOptions.length; i++) {
             customOptions[i].value = i + 2
             customOptions[i].color = getVotingColor(i + 2)
@@ -88,16 +94,48 @@ Popup {
         customOptionsRepeater.model = customOptions
     }
 
+    // 清空所有自定义选项
     function clearCustomOptions() {
         customOptions = []
         customOptionsRepeater.model = customOptions
     }
 
+    // 添加默认选项
     function addDefaultOptions() {
         clearCustomOptions()
         addCustomOption("选项A")
         addCustomOption("选项B")
         addCustomOption("选项C")
+    }
+
+    // 创建投票（调用 MeetingManager 的接口）
+    function createVoting() {
+        if (!meetingManager) {
+            console.error("[PanelCreateVoting] meetingManager 未找到")
+            return
+        }
+
+        if (voteSubject.trim() === "") {
+            console.warn("[PanelCreateVoting] 投票主题不能为空")
+            return
+        }
+
+        if (voteType === "referendum") {
+            // 表决投票：使用 MeetingManager.createReferendumVoting()
+            meetingManager.createReferendumVoting(durationMinutes)
+            console.log("[PanelCreateVoting] 创建表决投票:", voteSubject, "时长:", durationMinutes, "分钟")
+        } else {
+            // 自定义投票：构建选项列表
+            var optionsList = []
+            for (var i = 0; i < customOptions.length; i++) {
+                optionsList.push({
+                    label: customOptions[i].label,
+                    value: customOptions[i].value
+                })
+            }
+            meetingManager.createCustomVoting(durationMinutes, optionsList)
+            console.log("[PanelCreateVoting] 创建自定义投票:", voteSubject, "时长:", durationMinutes, "分钟", "选项:", optionsList)
+        }
     }
 
     Component.onCompleted: {
@@ -224,7 +262,7 @@ Popup {
                     }
                 }
 
-                // 表决投票选项展示
+                // 表决投票选项展示（显示固定的三个选项：赞成/弃权/反对）
                 ColumnLayout {
                     spacing: 10
                     Layout.fillWidth: true
@@ -243,7 +281,7 @@ Popup {
                             opacity: 0.8
                             radius: 4
                             Text {
-                                text: "赞成 (1)"
+                                text: "赞成"
                                 anchors.centerIn: parent
                                 color: "white"
                                 font.pixelSize: 11
@@ -256,7 +294,7 @@ Popup {
                             opacity: 0.8
                             radius: 4
                             Text {
-                                text: "弃权 (0)"
+                                text: "弃权"
                                 anchors.centerIn: parent
                                 color: "white"
                                 font.pixelSize: 11
@@ -269,7 +307,7 @@ Popup {
                             opacity: 0.8
                             radius: 4
                             Text {
-                                text: "反对 (-1)"
+                                text: "反对"
                                 anchors.centerIn: parent
                                 color: "white"
                                 font.pixelSize: 11
@@ -317,11 +355,17 @@ Popup {
                                     }
 
                                     Text {
-                                        text: modelData.option + " (值:" + modelData.value + ")"
+                                        text: modelData.label
                                         color: Theme.text
                                         Layout.fillWidth: true
                                         elide: Text.ElideRight
                                         font.pixelSize: 11
+                                    }
+
+                                    Text {
+                                        text: "(值:" + modelData.value + ")"
+                                        color: Theme.textDim
+                                        font.pixelSize: 9
                                     }
 
                                     CustomButton {
@@ -476,12 +520,12 @@ Popup {
                 Layout.preferredWidth: 80
                 Layout.preferredHeight: 26
 
-                backgroundColor:  Qt.darker(Theme.textMenu, 1.1)
+                backgroundColor: Qt.darker(Theme.textMenu, 1.1)
                 hoverColor: Theme.textMenu
                 pressedColor: Qt.darker(Theme.textMenu, 1.3)
 
                 onClicked: {
-                    votingCreated(voteSubject, durationMinutes, voteType, customOptions, anonymousVote, repeatVote)
+                    createVoting()
                     root.close()
                 }
             }

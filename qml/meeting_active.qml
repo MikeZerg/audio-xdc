@@ -11,20 +11,24 @@ ColumnLayout {
     Layout.preferredHeight: parent.height * 0.90
     spacing: 0
 
+    // ========== 接收外部传入的会议ID ==========
+    property string selectedMeetingId: ""
+
     // 直接使用全局注入的 meetingManager
     property bool hasActiveMeeting: false
+    property var currentMeetingData: ({})
+
+    // 计时器刷新间隔
+    property int elapsedSeconds: 0
+    property string elapsedTimeString: "0分钟"
 
     Timer {
         id: meetingTimer
         interval: 1000
         repeat: true
         onTriggered: {
-            if (meetingManager) {
-                var m = meetingManager.currentMeeting
-                if (m && m.status !== 1) {
-                    stop()
-                    checkActiveMeeting()
-                }
+            if (hasActiveMeeting && currentMeetingData.startTime) {
+                updateElapsedTime()
             }
         }
     }
@@ -36,29 +40,9 @@ ColumnLayout {
         running: true
         onTriggered: {
             if (meetingManager) {
-                var m = meetingManager.currentMeeting
-                if (m && m.status === 1 && !hasActiveMeeting) {
-                    console.log("[Auto-Sync] 检测到会议进行中，刷新 UI")
-                    checkActiveMeeting()
-                }
+                checkActiveMeeting()
             }
         }
-    }
-
-    // 获取当前会议
-    function getCurrentMeeting() {
-        return meetingManager ? (meetingManager.currentMeeting || {}) : {}
-    }
-
-    function checkActiveMeeting() {
-        if (!meetingManager) return false
-        var status = getCurrentMeeting().status
-        hasActiveMeeting = (status === 1) // 1 = InProgress
-
-        if (hasActiveMeeting && !meetingTimer.running) meetingTimer.start()
-        if (!hasActiveMeeting && meetingTimer.running) meetingTimer.stop()
-
-        return hasActiveMeeting
     }
 
     // 格式化日期时间
@@ -68,42 +52,103 @@ ColumnLayout {
         return isNaN(date.getTime()) ? "N/A" : date.toLocaleString()
     }
 
-    // 格式化计时器
-    function formatElapsedTime(startTime) {
-        if (!startTime) return "0分钟"
-        var now = new Date()
-        var start = new Date(startTime)
-        if (isNaN(start.getTime())) return "0分钟"
-
-        var diffMs = now - start
-        if (diffMs < 0) return "0分钟"
-
-        var totalSeconds = Math.floor(diffMs / 1000)
+    // 格式化时间显示
+    function formatTimeDisplay(totalSeconds) {
+        if (totalSeconds < 0) return "0分钟"
         var hours = Math.floor(totalSeconds / 3600)
         var minutes = Math.floor((totalSeconds % 3600) / 60)
+        var seconds = totalSeconds % 60
 
         if (hours > 0) {
-            return hours + "小时" + minutes + "分钟"
+            return hours + "小时" + minutes + "分钟" + seconds + "秒"
+        } else if (minutes > 0) {
+            return minutes + "分钟" + seconds + "秒"
         }
-        return minutes + "分钟"
+        return seconds + "秒"
+    }
+
+    // 更新已进行时间
+    function updateElapsedTime() {
+        if (currentMeetingData.startTime) {
+            var start = new Date(currentMeetingData.startTime)
+            var now = new Date()
+            if (!isNaN(start.getTime())) {
+                elapsedSeconds = Math.floor((now - start) / 1000)
+                elapsedTimeString = formatTimeDisplay(elapsedSeconds)
+            }
+        }
+    }
+
+    // 获取当前会议
+    function getCurrentMeeting() {
+        return currentMeetingData
+    }
+
+    // 检查是否有进行中的会议
+    function checkActiveMeeting() {
+        if (!meetingManager) return false
+
+        // 先从当前活跃会议检查
+        var activeMeeting = meetingManager.currentMeeting
+        if (activeMeeting && (activeMeeting.status === 1 || activeMeeting.status === "InProgress")) {
+            currentMeetingData = activeMeeting
+            hasActiveMeeting = true
+            if (!meetingTimer.running) {
+                meetingTimer.start()
+                updateElapsedTime()
+            }
+            return true
+        }
+
+        // 如果没有活跃会议，但传入了会议ID，则尝试启动会议
+        if (selectedMeetingId !== "") {
+            startSelectedMeeting()
+            return false
+        }
+
+        hasActiveMeeting = false
+        if (meetingTimer.running) meetingTimer.stop()
+        return false
+    }
+
+    // 启动选中的会议
+    function startSelectedMeeting() {
+        if (!meetingManager || selectedMeetingId === "") return false
+
+        console.log("[ActivePage] 启动会议 ID:", selectedMeetingId)
+        var success = meetingManager.startScheduledMeeting(selectedMeetingId)
+
+        if (success) {
+            console.log("[ActivePage] 会议启动成功")
+            // 清空选中的会议ID，避免重复启动
+            selectedMeetingId = ""
+            // 刷新当前会议数据
+            currentMeetingData = meetingManager.currentMeeting
+            hasActiveMeeting = true
+            meetingTimer.start()
+            updateElapsedTime()
+            return true
+        } else {
+            console.error("[ActivePage] 会议启动失败")
+            return false
+        }
     }
 
     // 获取总参会人数
     function getTotalParticipants() {
-        if (meetingManager && meetingManager.getTotalParticipantCount) {
-            return meetingManager.getTotalParticipantCount() || 0
-        }
-        return 0
+        return currentMeetingData.expectedParticipants || 0
     }
 
     // 获取签到计数
     function getCheckedInCount() {
-        var meeting = getCurrentMeeting()
-        var checkin = meeting.currentCheckIn || {}
-        return checkin.results ? Object.keys(checkin.results).length : 0
+        var checkin = currentMeetingData.currentCheckIn || {}
+        if (checkin.results) {
+            return Object.keys(checkin.results).length
+        }
+        return checkin.checkedInCount || 0
     }
 
-    // 获取签到百分
+    // 获取签到百分比
     function getCheckInPercentage() {
         var total = getTotalParticipants()
         if (total === 0) return 0
@@ -112,9 +157,11 @@ ColumnLayout {
 
     // 获取投票计数
     function getVotedCount() {
-        var meeting = getCurrentMeeting()
-        var voting = meeting.currentVoting || {}
-        return voting.results ? Object.keys(voting.results).length : 0
+        var voting = currentMeetingData.currentVoting || {}
+        if (voting.results) {
+            return Object.keys(voting.results).length
+        }
+        return voting.totalVotes || 0
     }
 
     // 获取投票百分比
@@ -126,10 +173,21 @@ ColumnLayout {
 
     // 获取会议关联主机
     function getFormattedHosts() {
-        if (!meetingManager || !meetingManager.meetingHosts) return "未关联"
-        var hosts = meetingManager.meetingHosts
+        var hosts = currentMeetingData.hostAddresses || []
         if (hosts.length === 0) return "未关联"
         return hosts.map(addr => "0x" + addr.toString(16).toUpperCase().padStart(2, '0')).join(", ")
+    }
+
+    // 检查当前是否有活跃的签到
+    function isCheckInActive() {
+        var checkin = currentMeetingData.currentCheckIn || {}
+        return checkin.isActive === true
+    }
+
+    // 检查当前是否有活跃的投票
+    function isVotingActive() {
+        var voting = currentMeetingData.currentVoting || {}
+        return voting.isActive === true
     }
 
     // 打开创建签到事件面板
@@ -138,7 +196,11 @@ ColumnLayout {
         if (component.status === Component.Ready) {
             var panel = component.createObject(meeting_active_page, { parent: meeting_active_page })
             panel.checkinCreated.connect(function(duration) {
-                if (meetingManager) meetingManager.createCheckInEvent(duration)
+                if (meetingManager) {
+                    meetingManager.createCheckInEvent(duration)
+                    // 刷新数据
+                    currentMeetingData = meetingManager.currentMeeting
+                }
             })
             panel.open()
         }
@@ -156,9 +218,23 @@ ColumnLayout {
                     } else {
                         meetingManager.createCustomVoting(duration, customOptions)
                     }
+                    // 刷新数据
+                    currentMeetingData = meetingManager.currentMeeting
                 }
             })
             panel.open()
+        }
+    }
+
+    // 结束当前会议
+    function endCurrentMeeting() {
+        if (meetingManager) {
+            meetingManager.endCurrentMeeting()
+            hasActiveMeeting = false
+            currentMeetingData = {}
+            if (meetingTimer.running) meetingTimer.stop()
+            elapsedSeconds = 0
+            elapsedTimeString = "0分钟"
         }
     }
 
@@ -169,6 +245,11 @@ ColumnLayout {
         function onSignal_meetingUpdated() {
             console.log("[ActivePage] 收到更新信号")
             checkActiveMeeting()
+            // 更新当前会议数据
+            if (hasActiveMeeting) {
+                currentMeetingData = meetingManager.currentMeeting
+                updateElapsedTime()
+            }
         }
     }
 
@@ -176,6 +257,8 @@ ColumnLayout {
         console.log("[ActivePage] 加载完成, Manager:", meetingManager !== null)
         checkActiveMeeting()
     }
+
+    // ========== UI 布局 ==========
 
     // 页面标题
     Item {
@@ -208,7 +291,7 @@ ColumnLayout {
         spacing: 20
 
         Text {
-            text: "当前没有进行中的会议\n请在【会议管理】页面点击开始"
+            text: "当前没有进行中的会议\n请在【会议管理】页面点击开始会议"
             color: Theme.textDim
             horizontalAlignment: Text.AlignHCenter
             Layout.alignment: Qt.AlignCenter
@@ -228,7 +311,7 @@ ColumnLayout {
         // 1. 会议信息卡片
         Rectangle {
             Layout.fillWidth: true
-            height: 240
+            height: 280
             color: Theme.surface
             radius: Theme.radiusL
             border.color: Theme.borderLine
@@ -237,24 +320,23 @@ ColumnLayout {
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 15
-                spacing: 8
+                spacing: 10
 
                 RowLayout {
                     Layout.fillWidth: true
                     Rectangle { width: 10; height: 10; radius: 5; color: Theme.success }
-                    Text { text: "会议进行中"; color: Theme.success; font.bold: true }
+                    Text { text: "会议进行中"; color: Theme.success; font.bold: true; font.pixelSize: 12 }
                     Item { Layout.fillWidth: true }
                     CustomButton {
                         text: "结束会议"
-                        Layout.preferredHeight: 26
+                        Layout.preferredHeight: 28
                         Layout.preferredWidth: 100
                         backgroundColor: Theme.error
                         hoverColor: Qt.lighter(Theme.error, 1.2)
                         pressedColor: Qt.darker(Theme.error, 1.2)
                         textColor: "white"
-                        onClicked: {
-                            if(meetingManager) meetingManager.endCurrentMeeting()
-                        }
+                        font.pixelSize: 11
+                        onClicked: endCurrentMeeting()
                     }
                 }
 
@@ -264,23 +346,43 @@ ColumnLayout {
                     columnSpacing: 20
                     rowSpacing: 8
 
-                    Text { text: "会议ID:"; color: Theme.textDim }
-                    Text { text: getCurrentMeeting().mid || "N/A"; color: Theme.text; Layout.fillWidth: true }
+                    Text { text: "会议ID:"; color: Theme.textDim; font.pixelSize: 11 }
+                    Text { text: currentMeetingData.mid || "N/A"; color: Theme.text; font.pixelSize: 11; Layout.fillWidth: true }
 
-                    Text { text: "会议主题:"; color: Theme.textDim }
-                    Text { text: getCurrentMeeting().subject || "未命名"; color: Theme.text; Layout.fillWidth: true }
+                    Text { text: "会议主题:"; color: Theme.textDim; font.pixelSize: 11 }
+                    Text { text: currentMeetingData.subject || "未命名"; color: Theme.text; font.pixelSize: 11; Layout.fillWidth: true }
 
-                    Text { text: "开始时间:"; color: Theme.textDim }
-                    Text { text: formatDateTime(getCurrentMeeting().startTime); color: Theme.text }
+                    Text { text: "开始时间:"; color: Theme.textDim; font.pixelSize: 11 }
+                    Text { text: formatDateTime(currentMeetingData.startTime); color: Theme.text; font.pixelSize: 11 }
 
-                    Text { text: "已进行:"; color: Theme.textDim }
-                    Text { text: formatElapsedTime(getCurrentMeeting().startTime); color: Theme.accent1 }
+                    Text { text: "已进行:"; color: Theme.textDim; font.pixelSize: 11 }
+                    Text { text: elapsedTimeString; color: Theme.accent1; font.pixelSize: 11; font.bold: true }
 
-                    Text { text: "参会人数:"; color: Theme.textDim }
-                    Text { text: getTotalParticipants() + "人"; color: Theme.text }
+                    Text { text: "预计时长:"; color: Theme.textDim; font.pixelSize: 11 }
+                    Text { text: formatTimeDisplay(currentMeetingData.durationSecs || 0); color: Theme.text; font.pixelSize: 11 }
 
-                    Text { text: "关联主机:"; color: Theme.textDim }
-                    Text { text: getFormattedHosts(); color: Theme.text; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { text: "参会人数:"; color: Theme.textDim; font.pixelSize: 11 }
+                    Text { text: getTotalParticipants() + "人"; color: Theme.text; font.pixelSize: 11 }
+
+                    Text { text: "关联主机:"; color: Theme.textDim; font.pixelSize: 11 }
+                    Text { text: getFormattedHosts(); color: Theme.text; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+                }
+
+                // 会议描述
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 1
+                    color: Theme.borderLine
+                    opacity: 0.3
+                }
+
+                Text {
+                    text: "📝 " + (currentMeetingData.description || "无描述")
+                    color: Theme.textDim
+                    font.pixelSize: 11
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    visible: currentMeetingData.description && currentMeetingData.description !== ""
                 }
             }
         }
@@ -294,6 +396,7 @@ ColumnLayout {
                 textColor: Theme.text
                 implicitHeight: 36
                 Layout.fillWidth: true
+                font.pixelSize: 12
 
                 backgroundColor: Qt.darker(Theme.textMenu, 1.1)
                 hoverColor: Theme.textMenu
@@ -306,6 +409,7 @@ ColumnLayout {
                 textColor: Theme.text
                 implicitHeight: 36
                 Layout.fillWidth: true
+                font.pixelSize: 12
 
                 backgroundColor: Qt.darker(Theme.textMenu, 1.1)
                 hoverColor: Theme.textMenu
@@ -318,28 +422,52 @@ ColumnLayout {
         // 3. 当前签到状态
         Rectangle {
             Layout.fillWidth: true
-            height: 80
+            height: 90
             color: Theme.surface
             radius: Theme.radiusS
             border.color: Theme.borderLine
-            visible: {
-                var m = getCurrentMeeting()
-                return m.currentCheckIn && m.currentCheckIn.isActive === true
-            }
+            border.width: 1
+            visible: isCheckInActive()
+
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 12
+                spacing: 8
+
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "📋 当前签到"; color: Theme.accent1; font.bold: true }
+                    Text { text: "📋 当前签到"; color: Theme.accent1; font.bold: true; font.pixelSize: 12 }
                     Item { Layout.fillWidth: true }
-                    Text { text: "进行中"; color: Theme.success }
+                    Text { text: "进行中"; color: Theme.success; font.pixelSize: 11 }
+                    CustomButton {
+                        text: "结束签到"
+                        height: 24
+                        width: 70
+                        font.pixelSize: 10
+                        backgroundColor: Theme.textDim
+                        hoverColor: Qt.lighter(Theme.textDim, 1.2)
+                        onClicked: {
+                            if (meetingManager) meetingManager.resetCheckInEvent(0)
+                        }
+                    }
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "已签到: " + getCheckedInCount() + "/" + getTotalParticipants(); color: Theme.text }
+                    Text { text: "已签到: " + getCheckedInCount() + "/" + getTotalParticipants(); color: Theme.text; font.pixelSize: 11 }
                     Item { Layout.fillWidth: true }
-                    Text { text: "签到率: " + getCheckInPercentage() + "%"; color: Theme.accent1 }
+                    Rectangle {
+                        width: 120
+                        height: 6
+                        radius: 3
+                        color: Theme.borderLine
+                        Rectangle {
+                            width: parent.width * (getCheckInPercentage() / 100)
+                            height: 6
+                            radius: 3
+                            color: Theme.success
+                        }
+                    }
+                    Text { text: getCheckInPercentage() + "%"; color: Theme.accent1; font.pixelSize: 11; font.bold: true }
                 }
             }
         }
@@ -347,28 +475,63 @@ ColumnLayout {
         // 4. 当前投票状态
         Rectangle {
             Layout.fillWidth: true
-            height: 80
+            height: 90
             color: Theme.surface
             radius: Theme.radiusS
             border.color: Theme.borderLine
-            visible: {
-                var m = getCurrentMeeting()
-                return m.currentVoting && m.currentVoting.isActive === true
-            }
+            border.width: 1
+            visible: isVotingActive()
+
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 12
+                spacing: 8
+
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "🗳️ 当前投票"; color: Theme.accent1; font.bold: true }
+                    Text { text: "🗳️ 当前投票"; color: Theme.accent1; font.bold: true; font.pixelSize: 12 }
                     Item { Layout.fillWidth: true }
-                    Text { text: "进行中"; color: Theme.success }
+                    Text { text: "进行中"; color: Theme.success; font.pixelSize: 11 }
+                    CustomButton {
+                        text: "结束投票"
+                        height: 24
+                        width: 70
+                        font.pixelSize: 10
+                        backgroundColor: Theme.textDim
+                        hoverColor: Qt.lighter(Theme.textDim, 1.2)
+                        onClicked: {
+                            if (meetingManager) meetingManager.resetVotingEvent(0)
+                        }
+                    }
                 }
+
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "已投票: " + getVotedCount() + "/" + getTotalParticipants(); color: Theme.text }
+                    Text { text: "已投票: " + getVotedCount() + "/" + getTotalParticipants(); color: Theme.text; font.pixelSize: 11 }
                     Item { Layout.fillWidth: true }
-                    Text { text: "投票率: " + getVotePercentage() + "%"; color: Theme.accent1 }
+
+                    // 投票主题
+                    Text {
+                        text: "主题: " + (currentMeetingData.currentVoting?.subject || "投票进行中")
+                        color: Theme.textDim
+                        font.pixelSize: 10
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+
+                    Rectangle {
+                        width: 100
+                        height: 6
+                        radius: 3
+                        color: Theme.borderLine
+                        Rectangle {
+                            width: parent.width * (getVotePercentage() / 100)
+                            height: 6
+                            radius: 3
+                            color: Theme.warning
+                        }
+                    }
+                    Text { text: getVotePercentage() + "%"; color: Theme.accent1; font.pixelSize: 11; font.bold: true }
                 }
             }
         }

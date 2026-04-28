@@ -3,22 +3,27 @@ import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import "./CustomWidget"
 
+// ========== 主页面 ==========
 ColumnLayout {
-    id: root
+    id: meeting_console_page
     Layout.preferredWidth: parent.width * 0.90
     Layout.preferredHeight: parent.height * 0.90
     spacing: 0
 
-    // 接收外部传入的会议ID（用于从日程跳转）
-    property string selectedMeetingId: ""
+    // ========== 区域展开状态（互斥） ==========
+    property bool scheduledExpanded: true
+    property bool historyExpanded: false
 
-    // 当前选中的会议数据
-    property var selectedMeeting: ({})
+    // 当前展开的预定会议索引（同一时间只展开一个）
+    property int expandedScheduledIndex: -1
 
-    // 顶部区域展开状态
-    property bool topExpanded: true
+    // 当前选中的历史会议索引
+    property int selectedHistoryIndex: -1
 
-    // 辅助函数：格式化时间
+    // 记录折叠状态下的固定高度
+    property int headerHeight: 45
+
+    // ========== 辅助函数 ==========
     function formatDateTime(str) {
         if (!str) return "N/A"
         var d = new Date(str)
@@ -31,69 +36,110 @@ ColumnLayout {
         return m < 60 ? m + "分钟" : Math.floor(m / 60) + "小时" + (m % 60) + "分钟"
     }
 
-    // 根据ID加载会议信息
-    function loadMeetingById(meetingId) {
-        if (!meetingManager) return false
-
-        // 先在预定会议中查找
-        var scheduledMeetings = meetingManager.scheduledMeetings
-        for (var i = 0; i < scheduledMeetings.length; i++) {
-            if (scheduledMeetings[i].mid === meetingId) {
-                selectedMeeting = scheduledMeetings[i]
-                selectedMeeting.isCompleted = false
-                console.log("[Console] 加载预定会议成功:", selectedMeeting.subject)
-                // [修复] 强制刷新顶部显示
-                topArea.visible = true
-                return true
-            }
+    // 判断会议是否已结束（历史会议）
+    function isEndedMeeting(meeting) {
+        var status = meeting.status
+        if (typeof status === "number") {
+            return status === 2
         }
-
-        // 在历史会议中查找
-        var historicalMeetings = meetingManager.historicalMeetings
-        for (var it = 0; it < historicalMeetings.length; it++) {
-            if (historicalMeetings[it].mid === meetingId) {
-                selectedMeeting = historicalMeetings[it]
-                selectedMeeting.isCompleted = true
-                console.log("[Console] 加载历史会议成功:", selectedMeeting.subject)
-                topArea.visible = true
-                return true
-            }
-        }
-
-        console.warn("[Console] 未找到会议，ID:", meetingId)
-        return false
+        return status === "Ended"
     }
 
-    // 开始会议
-    function startMeeting(meetingId) {
-        if (meetingManager) {
-            meetingManager.startScheduledMeeting(meetingId)
-            loadMeetingById(meetingId)
+    // 判断会议是否未开始或进行中（预定会议/进行中会议）
+    function isActiveMeeting(meeting) {
+        var status = meeting.status
+        if (typeof status === "number") {
+            return status === 0 || status === 1
+        }
+        return status === "NotStarted" || status === "InProgress"
+    }
+
+    // 判断会议是否进行中
+    function isInProgressMeeting(meeting) {
+        var status = meeting.status
+        if (typeof status === "number") {
+            return status === 1
+        }
+        return status === "InProgress"
+    }
+
+    // 获取未完结会议列表（NotStarted 和 InProgress）
+    function getActiveMeetings() {
+        if (!meetingManager) return []
+        var allMeetings = meetingManager.scheduledMeetings
+        var result = []
+        for (var i = 0; i < allMeetings.length; i++) {
+            if (isActiveMeeting(allMeetings[i])) {
+                result.push(allMeetings[i])
+            }
+        }
+        return result
+    }
+
+    // 获取历史会议列表（Ended）
+    function getHistoricalMeetings() {
+        if (!meetingManager) return []
+        var allMeetings = meetingManager.historicalMeetings
+        var result = []
+        for (var i = 0; i < allMeetings.length; i++) {
+            if (isEndedMeeting(allMeetings[i])) {
+                result.push(allMeetings[i])
+            }
+        }
+        return result
+    }
+
+    // 展开预定会议区域，折叠历史会议区域
+    function expandScheduled() {
+        if (!scheduledExpanded) {
+            scheduledExpanded = true
+            historyExpanded = false
+            selectedHistoryIndex = -1
         }
     }
 
-    Component.onCompleted: {
-        console.log("[Console] 会议模块入口加载，正在同步数据...");
-        if (meetingManager) {
-            meetingManager.loadMeetingsFromJson();
+    // 展开历史会议区域，折叠预定会议区域
+    function expandHistory() {
+        if (!historyExpanded) {
+            historyExpanded = true
+            scheduledExpanded = false
+            expandedScheduledIndex = -1
+        }
+    }
 
-            if (selectedMeetingId !== "") {
-                Qt.callLater(function() {
-                    loadMeetingById(selectedMeetingId)
-                })
-            }
+    // 选中预定会议（同一时间只展开一个）
+    function selectScheduledMeeting(index) {
+        if (expandedScheduledIndex === index) {
+            expandedScheduledIndex = -1
         } else {
-            console.error("[Console] 致命错误：全局 meetingManager 未找到！");
+            expandedScheduledIndex = index
         }
     }
 
-    // 顶部标题
+    // 选中历史会议
+    function selectHistoryMeeting(meetingData, index) {
+        if (selectedHistoryIndex === index) {
+            selectedHistoryIndex = -1
+        } else {
+            selectedHistoryIndex = index
+        }
+    }
+
+    // 开始会议（仅对未开始的会议有效）
+    function onStartMeeting(meetingData) {
+        if (meetingManager && !isInProgressMeeting(meetingData) && !isEndedMeeting(meetingData)) {
+            console.log("[MeetingConsole] 启动会议 ID:", meetingData.mid)
+            meetingManager.startScheduledMeeting(meetingData.mid)
+        }
+    }
+
+    // ========== 顶部标题 ==========
     Item {
         Layout.preferredWidth: parent.width
         Layout.preferredHeight: 25
 
         Text {
-            text: "检测在线主机及主机属性"
+            text: "会议记录"
             font.pixelSize: 16
             color: Theme.text
             anchors.left: parent.left
@@ -105,472 +151,285 @@ ColumnLayout {
 
     Item { Layout.preferredHeight: 40 }
 
+    // ========== 主体内容区域 ==========
+    Item {
+        Layout.preferredWidth: parent.width
+        Layout.fillHeight: true
 
-    // ==================== 第一部分：当前选中会议详情 ====================
-    Rectangle {
-        id: topArea
-        Layout.fillWidth: true
-        Layout.preferredHeight: 200 //selectedMeetingId !== "" ? (topExpanded ? 280 : 80) : 0
-        color: Theme.surface
-        radius: Theme.radiusL
-        border.color: Theme.borderLine
-        border.width: 1
-        //visible: selectedMeetingId !== ""
-
-        Behavior on height { NumberAnimation { duration: 200 } }
-
-        ColumnLayout {
+        Item {
             anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
-
-            RowLayout {
-                Layout.fillWidth: true
-                Rectangle {
-                    width: 10
-                    height: 10
-                    radius: 5
-                    color: selectedMeeting.isCompleted === true ? Theme.textDim : Theme.success
-                }
-                Text {
-                    text: selectedMeeting.isCompleted === true ? "已完成会议" : "预定会议"
-                    color: selectedMeeting.isCompleted === true ? Theme.textDim : Theme.success
-                    font.bold: true
-                }
-                Item { Layout.fillWidth: true }
-                CustomButton {
-                    text: topExpanded ? "收起 ▲" : "展开 ▼"
-                    height: 24
-                    width: 60
-                    font.pixelSize: 10
-                    backgroundColor: "transparent"
-                    hoverColor: Theme.surfaceSelected
-                    onClicked: topExpanded = !topExpanded
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text {
-                    text: selectedMeeting.subject || "未命名"
-                    font.bold: true
-                    color: Theme.text
-                    Layout.fillWidth: true
-                }
-                Text {
-                    text: formatDateTime(selectedMeeting.startTime)
-                    color: Theme.textDim
-                    font.pixelSize: 11
-                }
-            }
+            anchors.leftMargin: 25
+            anchors.rightMargin: 20
 
             ColumnLayout {
-                Layout.fillWidth: true
-                visible: topExpanded
-                spacing: 5
+                anchors.fill: parent
+                spacing: 16
 
-                Text {
-                    text: "描述: " + (selectedMeeting.description || "无描述");
-                    color: Theme.textDim;
-                    wrapMode: Text.Wrap;
-                    Layout.fillWidth: true
-                }
-                Text {
-                    text: "关联主机: " + JSON.stringify(selectedMeeting.hostAddresses || []);
-                    color: Theme.textDim;
-                    font.pixelSize: 11
-                }
-                Text {
-                    text: "参会人数: " + (selectedMeeting.expectedParticipants || 0);
-                    color: Theme.textDim;
-                    font.pixelSize: 11
-                }
-                Text {
-                    text: "会议时长: " + formatDuration(selectedMeeting.durationSecs || 0);
-                    color: Theme.textDim;
-                    font.pixelSize: 11
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: !selectedMeeting.isCompleted && selectedMeeting.status !== 1
-
-                    CustomButton {
-                        text: "▶ 开始会议"
-                        height: 28
-                        Layout.preferredWidth: 100
-                        backgroundColor: Theme.success
-                        textColor: "white"
-                        onClicked: {
-                            if (selectedMeeting.mid) {
-                                startMeeting(selectedMeeting.mid)
-                            }
-                        }
-                    }
-                    Item { Layout.fillWidth: true }
-                }
-
-                // 已完成会议的签到/投票记录
+                // ============================================================
+                // 未完结会议区域（NotStarted 和 InProgress）
+                // ============================================================
                 ColumnLayout {
+                    id: scheduledArea
                     Layout.fillWidth: true
-                    visible: selectedMeeting.isCompleted === true
-                    spacing: 8
+                    Layout.preferredHeight: scheduledExpanded ? scheduledExpandedHeight : 60
+                    spacing: 0
+                    clip: true
 
-                    Text {
-                        text: "📌 会议事件记录:";
-                        color: Theme.accent1;
-                        font.pixelSize: 11;
-                        font.bold: true
+                    Behavior on Layout.preferredHeight {
+                        NumberAnimation { duration: 250; easing.type: Easing.InOutQuad }
                     }
 
                     Rectangle {
                         Layout.fillWidth: true
-                        height: checkinEventList.contentHeight + 10
-                        color: Qt.rgba(0,0,0,0.05)
-                        radius: 4
-                        visible: (selectedMeeting.checkInHistory || []).length > 0
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            spacing: 4
-
-                            Text { text: "📋 签到记录"; color: Theme.text; font.pixelSize: 10; font.bold: true }
-
-                            ListView {
-                                id: checkinEventList
-                                Layout.fillWidth: true
-                                height: contentHeight
-                                interactive: false
-                                spacing: 4
-                                model: selectedMeeting.checkInHistory || []
-
-                                delegate: Rectangle {
-                                    width: ListView.view.width
-                                    height: 30
-                                    color: "transparent"
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: 4
-                                        Text { text: "签到时间: " + formatDateTime(modelData.startTime); color: Theme.textDim; font.pixelSize: 10 }
-                                        Item { Layout.fillWidth: true }
-                                        Text { text: "实到: " + (modelData.checkedInCount || 0) + "人"; color: Theme.success; font.pixelSize: 10 }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        height: votingEventList.contentHeight + 10
-                        color: Qt.rgba(0,0,0,0.05)
-                        radius: 4
-                        visible: (selectedMeeting.votingHistory || []).length > 0
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            spacing: 4
-
-                            Text { text: "🗳️ 投票记录"; color: Theme.text; font.pixelSize: 10; font.bold: true }
-
-                            ListView {
-                                id: votingEventList
-                                Layout.fillWidth: true
-                                height: contentHeight
-                                interactive: false
-                                spacing: 4
-                                model: selectedMeeting.votingHistory || []
-
-                                delegate: Rectangle {
-                                    width: ListView.view.width
-                                    height: 30
-                                    color: "transparent"
-
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.margins: 4
-                                        Text { text: "投票主题: " + (modelData.subject || "投票"); color: Theme.textDim; font.pixelSize: 10; Layout.fillWidth: true }
-                                        Text { text: "总票数: " + (modelData.totalVotes || 0); color: Theme.warning; font.pixelSize: 10 }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ==================== 第二部分：预定会议列表 ====================
-    ColumnLayout {
-        Layout.fillWidth: true
-        Layout.preferredHeight: scheduledListView.contentHeight + 40
-        spacing: 10
-
-        Text {
-            text: "📅 预定会议"
-            color: Theme.textMenu
-            font.bold: true
-        }
-
-        ListView {
-            id: scheduledListView
-            Layout.fillWidth: true
-            Layout.preferredHeight: contentHeight
-            interactive: false
-            model: meetingManager ? meetingManager.scheduledMeetings : []
-            spacing: 8
-
-            delegate: Rectangle {
-                width: ListView.view.width
-                height: listExpanded ? (80 + detailCol.height + 20) : 60
-                color: Theme.surface
-                radius: Theme.radiusS
-                border.color: Theme.borderLine
-                border.width: 0.5
-                clip: true
-
-                property bool listExpanded: false
-                Behavior on height { NumberAnimation { duration: 200 } }
-
-                ColumnLayout {
-                    id: detailCol
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 8
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text {
-                            text: modelData.subject;
-                            font.bold: true;
-                            color: Theme.text;
-                            elide: Text.ElideRight;
-                            Layout.fillWidth: true
-                        }
-                        Text {
-                            text: formatDateTime(modelData.startTime);
-                            color: Theme.textDim;
-                            font.pixelSize: 11
-                        }
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        visible: parent.parent.listExpanded
-                        spacing: 5
-
-                        Text {
-                            text: modelData.description || "无描述";
-                            color: Theme.textDim;
-                            wrapMode: Text.Wrap;
-                            Layout.fillWidth: true
-                        }
-                        Text {
-                            text: "关联主机: " + JSON.stringify(modelData.hostAddresses || []);
-                            color: Theme.textDim;
-                            font.pixelSize: 11
-                        }
-                        Text {
-                            text: "参会人数: " + (modelData.expectedParticipants || 0);
-                            color: Theme.textDim;
-                            font.pixelSize: 11
-                        }
+                        Layout.preferredHeight: 32
+                        color: "transparent"
 
                         RowLayout {
-                            CustomButton {
-                                text: modelData.status === 1 ? "会议进行中" : "▶ 开始会议"
-                                height: 28
-                                enabled: modelData.status !== 1
-                                backgroundColor: modelData.status === 1 ? Theme.textDim : Theme.success
-                                textColor: "white"
-                                onClicked: {
-                                    if (meetingManager && modelData.status !== 1) {
-                                        console.log("[Console] 启动会议 ID:", modelData.mid);
-                                        meetingManager.startScheduledMeeting(modelData.mid);
-                                    }
-                                }
+                            anchors.fill: parent
+                            anchors.leftMargin: 4
+                            anchors.rightMargin: 4
+
+                            Text {
+                                text: "进行中的会议"
+                                color: Theme.textMenu
+                                font.pixelSize: 13
+                                font.bold: true
                             }
+
+                            Text {
+                                text: "(" + getActiveMeetings().length + ")"
+                                color: Theme.textDim
+                                font.pixelSize: 12
+                            }
+
                             Item { Layout.fillWidth: true }
-                        }
-                    }
 
-                    Item { Layout.fillHeight: true }
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Item { Layout.fillWidth: true }
-                        CustomButton {
-                            text: parent.parent.listExpanded ? "收起" : "详情"
-                            height: 22
-                            font.pixelSize: 10
-                            onClicked: parent.parent.listExpanded = !parent.parent.listExpanded
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ==================== 第三部分：历史会议列表 ====================
-    ColumnLayout {
-        Layout.fillWidth: true
-        Layout.preferredHeight: historicalListView.contentHeight + 40
-        spacing: 10
-
-        Text {
-            text: "📋 历史会议归档"
-            color: Theme.textMenu
-            font.bold: true
-        }
-
-        ListView {
-            id: historicalListView
-            Layout.fillWidth: true
-            Layout.preferredHeight: contentHeight
-            interactive: false
-            model: meetingManager ? meetingManager.historicalMeetings : []
-            spacing: 8
-
-            delegate: Rectangle {
-                width: ListView.view.width
-                height: historyExpanded ? (70 + eventList.contentHeight + 20) : 60
-                color: Theme.panel
-                radius: Theme.radiusS
-                border.color: Theme.borderLine
-                border.width: 0.5
-                clip: true
-
-                property bool historyExpanded: false
-                Behavior on height { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 10
-                    spacing: 8
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text {
-                            text: modelData.subject;
-                            font.bold: true;
-                            color: Theme.text;
-                            Layout.fillWidth: true
-                        }
-                        Text {
-                            text: formatDateTime(modelData.startTime);
-                            color: Theme.textDim;
-                            font.pixelSize: 11
-                        }
-                    }
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        visible: parent.parent.historyExpanded
-                        spacing: 10
-
-                        Text {
-                            text: "描述: " + (modelData.description || "");
-                            color: Theme.textDim;
-                            wrapMode: Text.Wrap;
-                            Layout.fillWidth: true
-                        }
-                        Text {
-                            text: "参会人数: " + (modelData.expectedParticipants || 0);
-                            color: Theme.textDim;
-                            font.pixelSize: 11
-                        }
-                        Text {
-                            text: "📌 会议事件记录:";
-                            color: Theme.accent1;
-                            font.pixelSize: 11;
-                            font.bold: true
+                            Text {
+                                text: scheduledExpanded ? "点击收起 ▲" : "点击展开 ▼"
+                                color: Theme.textDim
+                                font.pixelSize: 11
+                                opacity: 0.7
+                            }
                         }
 
-                        ListView {
-                            id: eventList
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: contentHeight
-                            interactive: false
-                            spacing: 5
-                            model: [
-                                ...(modelData.checkInHistory || []),
-                                ...(modelData.votingHistory || [])
-                            ]
-
-                            delegate: Rectangle {
-                                width: ListView.view.width
-                                height: 40
-                                color: Qt.rgba(0,0,0,0.1)
-                                radius: 2
-
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 5
-
-                                    Text {
-                                        text: modelData.options ? "🗳️ 投票" : "📋 签到"
-                                        font.bold: true
-                                        color: modelData.options ? Theme.warning : Theme.success
-                                    }
-
-                                    Text {
-                                        text: modelData.subject || (modelData.options ? "自定义投票" : "常规签到")
-                                        color: Theme.text
-                                        Layout.fillWidth: true
-                                    }
-
-                                    Text {
-                                        text: modelData.options ?
-                                              "总票数: " + modelData.totalVotes :
-                                              "实到: " + modelData.checkedInCount
-                                        color: Theme.textDim
-                                        font.pixelSize: 10
-                                    }
+                        Button {
+                            anchors.fill: parent
+                            opacity: 0
+                            onClicked: {
+                                if (scheduledExpanded) {
+                                    scheduledExpanded = false
+                                    historyExpanded = false
+                                } else {
+                                    expandScheduled()
                                 }
                             }
                         }
                     }
 
-                    Item { Layout.fillHeight: true }
-
-                    RowLayout {
+                    Rectangle {
                         Layout.fillWidth: true
-                        Item { Layout.fillWidth: true }
-                        CustomButton {
-                            text: parent.parent.historyExpanded ? "收起" : "详情"
-                            height: 22
-                            font.pixelSize: 10
-                            onClicked: parent.parent.historyExpanded = !parent.parent.historyExpanded
+                        Layout.preferredHeight: 1
+                        color: Theme.borderLine
+                        opacity: 0.5
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: scheduledExpanded ? true : false
+                        visible: scheduledExpanded ? true : false
+
+                        ScrollView {
+                            anchors.fill: parent
+                            clip: true
+                            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                            ListView {
+                                id: scheduledListView
+                                width: parent.width
+                                implicitHeight: contentHeight
+                                interactive: true
+                                model: getActiveMeetings()
+                                spacing: 4
+
+                                delegate: CustomMeetingRecord {
+                                    width: ListView.view.width
+                                    meetingData: modelData
+                                    showStartButton: true
+                                    isExpanded: (expandedScheduledIndex === index)
+                                    itemIndex: index
+
+                                    onSelected: function(data, idx) {
+                                        selectScheduledMeeting(idx)
+                                    }
+
+                                    onStartMeeting: function(data) {
+                                        onStartMeeting(data)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+
+                // ============================================================
+                // 历史会议区域（Ended）
+                // ============================================================
+                ColumnLayout {
+                    id: historyArea
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 0
+                    clip: true
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 32
+                        color: "transparent"
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 4
+                            anchors.rightMargin: 4
+
+                            Text {
+                                text: "历史记录"
+                                color: Theme.textMenu
+                                font.pixelSize: 13
+                                font.bold: true
+                            }
+
+                            Text {
+                                text: "(" + getHistoricalMeetings().length + ")"
+                                color: Theme.textDim
+                                font.pixelSize: 12
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                text: historyExpanded ? "点击收起 ▲" : "点击展开 ▼"
+                                color: Theme.textDim
+                                font.pixelSize: 11
+                                opacity: 0.7
+                            }
+                        }
+
+                        Button {
+                            anchors.fill: parent
+                            opacity: 0
+                            onClicked: {
+                                if (historyExpanded) {
+                                    historyExpanded = false
+                                    scheduledExpanded = false
+                                } else {
+                                    expandHistory()
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 1
+                        color: Theme.borderLine
+                        opacity: 0.5
+                    }
+
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: historyExpanded ? true : false
+                        visible: historyExpanded ? true : false
+
+                        ScrollView {
+                            anchors.fill: parent
+                            clip: true
+                            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                            ListView {
+                                id: historicalListView
+                                width: parent.width
+                                implicitHeight: contentHeight
+                                interactive: true
+                                model: getHistoricalMeetings()
+                                spacing: 4
+
+                                delegate: CustomMeetingRecord {
+                                    width: ListView.view.width
+                                    meetingData: modelData
+                                    showStartButton: false
+                                    isExpanded: (selectedHistoryIndex === index)
+                                    itemIndex: index
+
+                                    onSelected: function(data, idx) {
+                                        selectHistoryMeeting(data, idx)
+                                    }
+
+                                    onStartMeeting: function(data) {}
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 60
+                        color: "transparent"
+                        visible: !historyExpanded
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: {
+                                var endedCount = getHistoricalMeetings().length
+                                var activeCount = getActiveMeetings().length
+                                if (activeCount > 0 || endedCount > 0) {
+                                    return "共 " + activeCount + " 条未完结会议记录\n共 " + endedCount + " 条历史会议记录，点击展开查看"
+                                }
+                                return "暂无历史记录"
+                            }
+                            color: Theme.textDim
+                            font.pixelSize: 10
+                        }
+                    }
+                }
+
+                Item { Layout.fillHeight: true }
             }
         }
     }
 
-    // 底部占位空间
     Item { Layout.preferredHeight: 20 }
 
+    property int scheduledExpandedHeight: {
+        var count = getActiveMeetings().length
+        if (count === 0) return 100
+        return headerHeight + count * 48 + 20
+    }
 
-
-    // 监听会议管理器变化
     Connections {
         target: meetingManager
         enabled: meetingManager !== null
 
         function onSignal_meetingUpdated() {
-            console.log("[Console] 会议数据更新，刷新列表")
-            if (selectedMeetingId !== "") {
-                loadMeetingById(selectedMeetingId)
+            console.log("[MeetingConsole] 会议数据更新，刷新列表")
+            if (scheduledListView) {
+                scheduledListView.visible = false
+                scheduledListView.visible = true
             }
-            // 刷新 ListView
-            scheduledListView.visible = false
-            scheduledListView.visible = true
-            historicalListView.visible = false
-            historicalListView.visible = true
+            if (historicalListView) {
+                historicalListView.visible = false
+                historicalListView.visible = true
+            }
+        }
+    }
+
+    Component.onCompleted: {
+        console.log("[MeetingConsole] 会议记录页面初始化完成")
+        if (meetingManager) {
+            meetingManager.loadMeetingsFromJson()
+        } else {
+            console.error("[MeetingConsole] 错误：全局 meetingManager 未找到！")
         }
     }
 }

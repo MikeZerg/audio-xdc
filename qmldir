@@ -23,3 +23,5 @@ CustomAFHUnit 1.0 qml/CustomWidget/CustomAFHUnit.qml
 
 CustomUnitCard 1.0 qml/CustomWidget/CustomUnitCard.qml
 CustomUnitDetailPanel 1.0 qml/CustomWidget/CustomUnitDetailPanel.qml
+
+CustomMeetingRecord 1.0 qml/CustomWidget/CustomMeetingRecord.qml

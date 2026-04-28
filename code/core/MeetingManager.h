@@ -26,6 +26,14 @@ enum class MeetingStatus {
 };
 
 /**
+ * @brief 投票类型枚举
+ */
+enum class VotingType {
+    Referendum,   // 表决投票（赞成/弃权/反对）
+    Custom        // 自定义投票
+};
+
+/**
  * @brief 签到事件结构
  */
 struct CheckInEvent {
@@ -34,6 +42,7 @@ struct CheckInEvent {
     QDateTime endTime;                // 结束时间
     int durationSecs = 0;             // 时长(秒)
     bool isActive = false;            // 是否激活
+    int totalExpected = 0;            // 应到人数
 
     // 结果数据：unitId -> 签到时间
     std::map<quint16, QDateTime> results;
@@ -41,6 +50,7 @@ struct CheckInEvent {
     void reset() {
         cid = 0;
         isActive = false;
+        totalExpected = 0;
         results.clear();
     }
 
@@ -50,7 +60,9 @@ struct CheckInEvent {
         map["isActive"] = isActive;
         map["startTime"] = startTime;
         map["endTime"] = endTime;
+        map["durationSecs"] = durationSecs;
         map["checkedInCount"] = static_cast<int>(results.size());
+        map["totalExpected"] = totalExpected;
 
         if (includeResults) {
             QVariantMap resMap;
@@ -69,6 +81,7 @@ struct CheckInEvent {
 struct VotingOption {
     QString label;    // 选项标签 (如: "赞成")
     qint16 value;     // 选项值 (如: 1)
+    int count = 0;    // 得票数（用于显示）
 };
 
 /**
@@ -81,6 +94,7 @@ struct VotingEvent {
     QDateTime endTime;                // 结束时间
     int durationSecs = 0;             // 时长(秒)
     bool isActive = false;            // 是否激活
+    VotingType type = VotingType::Referendum;  // 投票类型
     qint16 optionMin = 0;             // 选项最小值
     qint16 optionMax = 0;             // 选项最大值
     std::vector<VotingOption> options; // 选项列表
@@ -95,18 +109,39 @@ struct VotingEvent {
         options.clear();
     }
 
+    // 计算每个选项的得票数
+    void calculateOptionCounts() {
+        for (auto& opt : options) {
+            opt.count = 0;
+        }
+        for (const auto& entry : results) {
+            int optionVal = entry.second.second;
+            for (auto& opt : options) {
+                if (opt.value == optionVal) {
+                    opt.count++;
+                    break;
+                }
+            }
+        }
+    }
+
     QVariantMap toVariantMap(bool includeResults = false) const {
         QVariantMap map;
         map["vid"] = vid;
         map["subject"] = subject;
         map["isActive"] = isActive;
+        map["startTime"] = startTime;
+        map["endTime"] = endTime;
+        map["durationSecs"] = durationSecs;
         map["totalVotes"] = static_cast<int>(results.size());
+        map["type"] = (type == VotingType::Referendum) ? "referendum" : "custom";
 
         QVariantList opts;
         for (const auto& opt : options) {
             QVariantMap o;
             o["label"] = opt.label;
             o["value"] = opt.value;
+            o["count"] = opt.count;
             opts.append(o);
         }
         map["options"] = opts;
@@ -184,7 +219,7 @@ struct MeetingRecord {
         map["endTime"] = endTime;
         map["durationSecs"] = durationSecs;
         map["expectedParticipants"] = expectedParticipants;
-        
+
         // [新增] 转换主机地址列表为 QML 可用的格式
         QVariantList hosts;
         for (uint8_t addr : hostAddresses) {
@@ -196,9 +231,18 @@ struct MeetingRecord {
         map["currentCheckIn"] = currentCheckIn.toVariantMap();
         map["currentVoting"] = currentVoting.toVariantMap();
 
-        // 暴露历史记录摘要
-        map["checkInHistoryCount"] = checkInHistory.size();
-        map["votingHistoryCount"] = votingHistory.size();
+        // [修改] 暴露完整的历史记录，而不是仅计数
+        QVariantList checkInList;
+        for (const auto& event : checkInHistory) {
+            checkInList.append(event.toVariantMap(true));
+        }
+        map["checkInHistory"] = checkInList;
+
+        QVariantList votingList;
+        for (const auto& event : votingHistory) {
+            votingList.append(event.toVariantMap(true));
+        }
+        map["votingHistory"] = votingList;
 
         return map;
     }
@@ -213,7 +257,7 @@ class MeetingManager : public QObject
     // ==================== QML 属性暴露 ====================
     Q_PROPERTY(QVariantMap currentMeeting READ getCurrentMeetingData NOTIFY signal_meetingUpdated)
     Q_PROPERTY(QList<uint8_t> meetingHosts READ getMeetingHosts WRITE setMeetingHosts NOTIFY signal_meetingHostsChanged)
-    
+
     // [新增] 暴露会议列表属性，当 signal_meetingUpdated 触发时，QML 会自动刷新
     Q_PROPERTY(QVariantList scheduledMeetings READ getScheduledMeetings NOTIFY signal_meetingUpdated)
     Q_PROPERTY(QVariantList historicalMeetings READ getHistoricalMeetings NOTIFY signal_meetingUpdated)
@@ -255,7 +299,7 @@ public:
     Q_INVOKABLE void resetVotingEvent(int durationMinutes);
 
     // ==================== 数据持久化与查询接口 [新增] ====================
-    
+
     /**
      * @brief 从 JSON 文件加载所有会议数据到内存缓存
      * @param filePath 文件路径（可选，默认根据编译模式自动选择）
@@ -323,13 +367,15 @@ private:
     static QJsonObject recordToJson(const MeetingRecord& record);
     static QString statusToString(MeetingStatus status);
     static MeetingStatus stringToStatus(const QString& str);
+    static QString votingTypeToString(VotingType type);
+    static VotingType stringToVotingType(const QString& str);
 
 private:
     HostManager* m_hostManager = nullptr;
     MeetingRecord m_currentMeeting;       // 核心状态：聚合的当前会议记录
     QList<uint8_t> m_meetingHosts;        // 关联的主机地址列表
     quint16 m_globalEventId = 1;          // 全局事件ID计数器
-    
+
     QList<MeetingRecord> m_allMeetingsCache; // [新增] 全量会议数据缓存
     QTimer m_saveTimer;                   // [新增] 防抖保存定时器
 };
